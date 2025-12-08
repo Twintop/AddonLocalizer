@@ -32,4 +32,12 @@ public interface ILuaLocalizationParserService
     /// Synchronous version of ParseLocalizationUsagesAsync.
     /// </summary>
     HashSet<string> ParseLocalizationUsages(string filePath);
+    
+    /// <summary>
+    /// Parses a localization file and extracts format parameters from string values.
+    /// Returns a dictionary mapping localization keys to their format parameter lists.
+    /// Example: L["Template"] = "Player %s has %d items" 
+    /// Returns: { "Template": [FormatParameter(String), FormatParameter(Integer)] }
+    /// </summary>
+    Task<Dictionary<string, List<FormatParameter>>> ParseFormatParametersAsync(string filePath);
 }

@@ -350,6 +350,44 @@ public class LuaLocalizationParserServiceTests
         Assert.DoesNotContain("Defined", result);
     }
 
+    [Fact]
+    public async Task ParseFormatParametersAsync_IgnoresNonAssignmentLines()
+    {
+        var content = new[]
+        {
+            @"-- Comment: L[""Comment""] = ""Should ignore %s""",
+            @"L[""Valid""] = ""Valid %s""",
+            @"print(""Not an assignment %d"")"
+        };
+        SetupFileWithLines("enUS.lua", content);
+
+        var result = await _parser.ParseFormatParametersAsync("enUS.lua");
+
+        Assert.Single(result);
+        Assert.Contains("Valid", result.Keys);
+        Assert.DoesNotContain("Comment", result.Keys);
+    }
+
+    [Fact]
+    public async Task ParseFormatParametersAsync_DoesNotMatchPercentWithSpace()
+    {
+        var content = new[]
+        {
+            @"L[""HastePercent""] = ""High Haste% in Voidform""",
+            @"L[""ActualFormat""] = ""Player %s has %d items"""
+        };
+        SetupFileWithLines("enUS.lua", content);
+
+        var result = await _parser.ParseFormatParametersAsync("enUS.lua");
+
+        // HastePercent contains "% i" with space - should NOT be detected as format parameter
+        Assert.DoesNotContain("HastePercent", result.Keys);
+        
+        // ActualFormat has real format parameters
+        Assert.Contains("ActualFormat", result.Keys);
+        Assert.Equal(2, result["ActualFormat"].Count);
+    }
+
     private void SetupFileWithLines(string filePath, string[] lines)
     {
         _fileSystemMock.Setup(fs => fs.FileExists(filePath)).Returns(true);
