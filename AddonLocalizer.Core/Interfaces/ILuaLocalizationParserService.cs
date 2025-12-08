@@ -1,12 +1,11 @@
 using AddonLocalizer.Core.Models;
 
-namespace AddonLocalizer.Core.Interfaces
+namespace AddonLocalizer.Core.Interfaces;
+
+public interface ILuaLocalizationParserService
 {
-    public interface ILuaLocalizationParserService
-    {
-        Task<ParseResult> ParseDirectoryAsync(string directoryPath);
-        Task<ParseResult> ParseFileAsync(string filePath);
-        ParseResult ParseDirectory(string directoryPath);
-        ParseResult ParseFile(string filePath);
-    }
+    Task<ParseResult> ParseDirectoryAsync(string directoryPath, string[]? excludeSubdirectories = null);
+    Task<ParseResult> ParseFileAsync(string filePath);
+    ParseResult ParseDirectory(string directoryPath, string[]? excludeSubdirectories = null);
+    ParseResult ParseFile(string filePath);
 }

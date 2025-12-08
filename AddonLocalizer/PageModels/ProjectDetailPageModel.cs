@@ -86,7 +86,7 @@ namespace AddonLocalizer.PageModels
         {
             if (query.ContainsKey("id"))
             {
-                int id = Convert.ToInt32(query["id"]);
+                var id = Convert.ToInt32(query["id"]);
                 LoadData(id).FireAndForgetSafeAsync(_errorHandler);
             }
             else if (query.ContainsKey("refresh"))

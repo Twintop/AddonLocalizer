@@ -1,18 +1,26 @@
-namespace AddonLocalizer.Core.Models
-{
-    public class LocalizationEntry
-    {
-        public string GlueString { get; set; } = string.Empty;
-        public string FilePath { get; set; } = string.Empty;
-        public int LineNumber { get; set; }
-        public bool HasConcatenation { get; set; }
-        public string FullLineText { get; set; } = string.Empty;
-    }
+namespace AddonLocalizer.Core.Models;
 
-    public class ParseResult
-    {
-        public HashSet<string> AllGlueStrings { get; set; } = new();
-        public List<LocalizationEntry> ConcatenatedEntries { get; set; } = new();
-        public List<LocalizationEntry> AllEntries { get; set; } = new();
-    }
+public class GlueStringLocation
+{
+    public string FilePath { get; set; } = string.Empty;
+    public int LineNumber { get; set; }
+}
+
+public class GlueStringInfo
+{
+    public string GlueString { get; set; } = string.Empty;
+    public bool HasConcatenation { get; set; }
+    public int OccurrenceCount { get; set; }
+    public List<GlueStringLocation> Locations { get; set; } = [];
+}
+
+public class ParseResult
+{
+    public Dictionary<string, GlueStringInfo> GlueStrings { get; set; } = new();
+        
+    public IEnumerable<GlueStringInfo> NonConcatenated => 
+        GlueStrings.Values.Where(g => !g.HasConcatenation);
+        
+    public IEnumerable<GlueStringInfo> Concatenated => 
+        GlueStrings.Values.Where(g => g.HasConcatenation);
 }

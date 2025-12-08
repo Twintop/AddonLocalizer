@@ -4,4 +4,5 @@
   <Project Path="AddonLocalizer/AddonLocalizer.csproj">
     <Deploy />
   </Project>
+  <Project Path="ParserTest/ParserTest.csproj" />
 </Solution>

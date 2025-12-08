@@ -68,7 +68,7 @@ namespace AddonLocalizer.PageModels
                     chartColors.Add(category.ColorBrush);
 
                     var ps = Projects.Where(p => p.CategoryID == category.ID).ToList();
-                    int tasksCount = ps.SelectMany(p => p.Tasks).Count();
+                    var tasksCount = ps.SelectMany(p => p.Tasks).Count();
 
                     chartData.Add(new(category.Title, tasksCount));
                 }
@@ -87,7 +87,7 @@ namespace AddonLocalizer.PageModels
 
         private async Task InitData(SeedDataService seedDataService)
         {
-            bool isSeeded = Preferences.Default.ContainsKey("is_seeded");
+            var isSeeded = Preferences.Default.ContainsKey("is_seeded");
 
             if (!isSeeded)
             {

@@ -239,7 +239,7 @@ namespace AddonLocalizer.Data
             checkCmd.Parameters.AddWithValue("@projectID", projectID);
             checkCmd.Parameters.AddWithValue("@tagID", item.ID);
 
-            int existingCount = Convert.ToInt32(await checkCmd.ExecuteScalarAsync());
+            var existingCount = Convert.ToInt32(await checkCmd.ExecuteScalarAsync());
 
             return existingCount != 0;
         }

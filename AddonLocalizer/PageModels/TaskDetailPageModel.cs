@@ -51,7 +51,7 @@ namespace AddonLocalizer.PageModels
             if (query.TryGetValue(ProjectQueryKey, out var project))
                 Project = (Project)project;
 
-            int taskId = 0;
+            var taskId = 0;
 
             if (query.ContainsKey("id"))
             {
@@ -131,7 +131,7 @@ namespace AddonLocalizer.PageModels
 
             _task.Title = Title;
 
-            int projectId = Project?.ID ?? 0;
+            var projectId = Project?.ID ?? 0;
 
             if (Projects.Count > SelectedProjectIndex && SelectedProjectIndex >= 0)
                 _task.ProjectID = projectId = Projects[SelectedProjectIndex].ID;
