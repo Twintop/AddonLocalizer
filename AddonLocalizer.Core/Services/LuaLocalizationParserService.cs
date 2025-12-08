@@ -78,6 +78,45 @@ public class LuaLocalizationParserService(IFileSystemService fileSystem) : ILuaL
         return definedKeys;
     }
 
+    public async Task<HashSet<string>> ParseLocalizationUsagesAsync(string filePath)
+    {
+        if (!fileSystem.FileExists(filePath))
+        {
+            throw new FileNotFoundException($"File not found: {filePath}");
+        }
+
+        var usedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var lines = await fileSystem.ReadAllLinesAsync(filePath);
+
+        foreach (var line in lines)
+        {
+            // Check if this is an assignment line
+            var assignmentMatch = AssignmentPattern.Match(line);
+            if (assignmentMatch.Success)
+            {
+                // Get the part after the = (the right side)
+                var assignmentIndex = line.IndexOf('=');
+                if (assignmentIndex >= 0 && assignmentIndex < line.Length - 1)
+                {
+                    var rightSide = line.Substring(assignmentIndex + 1);
+                    
+                    // Find all L["..."] patterns in the right side
+                    var matches = LocalizationPattern.Matches(rightSide);
+                    foreach (Match match in matches)
+                    {
+                        if (match.Success && match.Groups.Count > 1)
+                        {
+                            var key = match.Groups[1].Value;
+                            usedKeys.Add(key);
+                        }
+                    }
+                }
+            }
+        }
+
+        return usedKeys;
+    }
+
     public HashSet<string> ParseLocalizationDefinitions(string filePath)
     {
         if (!fileSystem.FileExists(filePath))
@@ -100,6 +139,45 @@ public class LuaLocalizationParserService(IFileSystemService fileSystem) : ILuaL
         }
 
         return definedKeys;
+    }
+
+    public HashSet<string> ParseLocalizationUsages(string filePath)
+    {
+        if (!fileSystem.FileExists(filePath))
+        {
+            throw new FileNotFoundException($"File not found: {filePath}");
+        }
+
+        var usedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var lines = fileSystem.ReadAllLines(filePath);
+
+        foreach (var line in lines)
+        {
+            // Check if this is an assignment line
+            var assignmentMatch = AssignmentPattern.Match(line);
+            if (assignmentMatch.Success)
+            {
+                // Get the part after the = (the right side)
+                var assignmentIndex = line.IndexOf('=');
+                if (assignmentIndex >= 0 && assignmentIndex < line.Length - 1)
+                {
+                    var rightSide = line.Substring(assignmentIndex + 1);
+                    
+                    // Find all L["..."] patterns in the right side
+                    var matches = LocalizationPattern.Matches(rightSide);
+                    foreach (Match match in matches)
+                    {
+                        if (match.Success && match.Groups.Count > 1)
+                        {
+                            var key = match.Groups[1].Value;
+                            usedKeys.Add(key);
+                        }
+                    }
+                }
+            }
+        }
+
+        return usedKeys;
     }
 
     public ParseResult ParseDirectory(string directoryPath, string[]? excludeSubdirectories = null)

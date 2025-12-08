@@ -262,6 +262,94 @@ public class LuaLocalizationParserServiceTests
         Assert.DoesNotContain("ReturnedKey", result);
     }
 
+    [Fact]
+    public async Task ParseLocalizationUsagesAsync_ExtractsRightSideReferences()
+    {
+        var content = new[]
+        {
+            @"L[""FullName""] = L[""FirstName""] .. "" "" .. L[""LastName""]",
+            @"L[""Title""] = L[""Prefix""] .. "": "" .. L[""Name""]",
+            @"L[""SimpleKey""] = ""No references here"""
+        };
+        SetupFileWithLines("localizationPost.lua", content);
+
+        var result = await _parser.ParseLocalizationUsagesAsync("localizationPost.lua");
+
+        Assert.Equal(4, result.Count);
+        Assert.Contains("FirstName", result);
+        Assert.Contains("LastName", result);
+        Assert.Contains("Prefix", result);
+        Assert.Contains("Name", result);
+        
+        // Should NOT contain the keys being defined (left side)
+        Assert.DoesNotContain("FullName", result);
+        Assert.DoesNotContain("Title", result);
+        Assert.DoesNotContain("SimpleKey", result);
+    }
+
+    [Fact]
+    public async Task ParseLocalizationUsagesAsync_HandlesComplexExpressions()
+    {
+        var content = new[]
+        {
+            @"L[""Complex""] = string.format(""%s - %s"", L[""Part1""], L[""Part2""])",
+
+            @"L[""Nested""] = L[""A""] .. (L[""B""] .. L[""C""])",
+
+            @"L[""Conditional""] = condition and L[""Yes""] or L[""No""]"
+        };
+        SetupFileWithLines("localizationPost.lua", content);
+
+        var result = await _parser.ParseLocalizationUsagesAsync("localizationPost.lua");
+
+        Assert.Equal(7, result.Count);  // Updated to 7 since "No" is also captured
+        Assert.Contains("Part1", result);
+        Assert.Contains("Part2", result);
+        Assert.Contains("A", result);
+        Assert.Contains("B", result);
+        Assert.Contains("C", result);
+        Assert.Contains("Yes", result);
+        Assert.Contains("No", result);
+    }
+
+    [Fact]
+    public void ParseLocalizationUsages_SynchronousVersion_WorksCorrectly()
+    {
+        var content = new[]
+        {
+            @"L[""Combined""] = L[""First""] .. L[""Second""]"
+        };
+        SetupFileWithLines("localizationPost.lua", content);
+
+        var result = _parser.ParseLocalizationUsages("localizationPost.lua");
+
+        Assert.Equal(2, result.Count);
+        Assert.Contains("First", result);
+        Assert.Contains("Second", result);
+        Assert.DoesNotContain("Combined", result);
+    }
+
+    [Fact]
+    public async Task ParseLocalizationUsagesAsync_IgnoresNonAssignmentLines()
+    {
+        var content = new[]
+        {
+            @"-- Comment with L[""CommentKey""]",
+            @"L[""Defined""] = L[""UsedKey""]",
+            @"print(L[""PrintKey""])"
+        };
+        SetupFileWithLines("localizationPost.lua", content);
+
+        var result = await _parser.ParseLocalizationUsagesAsync("localizationPost.lua");
+
+        // Only captures from assignment lines
+        Assert.Single(result);
+        Assert.Contains("UsedKey", result);
+        Assert.DoesNotContain("CommentKey", result);
+        Assert.DoesNotContain("PrintKey", result);
+        Assert.DoesNotContain("Defined", result);
+    }
+
     private void SetupFileWithLines(string filePath, string[] lines)
     {
         _fileSystemMock.Setup(fs => fs.FileExists(filePath)).Returns(true);

@@ -5,101 +5,160 @@ var addonPath = @"C:\World of Warcraft\_beta_\Interface\AddOns\TwintopInsanityBa
 
 try
 {
-    Console.WriteLine($"Parsing addon directory: {addonPath}");
-    Console.WriteLine("Excluding: Localization subdirectory");
+    Console.WriteLine($"Analyzing addon localization: {addonPath}");
     Console.WriteLine(new string('=', 80));
     
     // Parse the main addon code (excluding Localization folder)
-    var result = await parser.ParseDirectoryAsync(addonPath, new[] { "Localization" });
+    var codeResult = await parser.ParseDirectoryAsync(addonPath, new[] { "Localization" });
+    Console.WriteLine($"Found {codeResult.GlueStrings.Count} unique glue strings used in code");
     
-    // Parse the localization files to get DEFINED keys (left side of = only)
-    var localizationPath = Path.Combine(addonPath, "Localization", "Localization.lua");
-    var localizationPostPath = Path.Combine(addonPath, "Localization", "LocalizationPost.lua");
+    // Parse enUS.lua - the default localization file
+    var enUSPath = Path.Combine(addonPath, "Localization", "enUS.lua");
+    HashSet<string> enUSKeys;
     
-    var existingKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-    
-    // Parse Localization.lua if it exists - only get defined keys
-    if (File.Exists(localizationPath))
+    if (File.Exists(enUSPath))
     {
-        var definedKeys = await parser.ParseLocalizationDefinitionsAsync(localizationPath);
-        existingKeys.UnionWith(definedKeys);
-        Console.WriteLine($"Found {definedKeys.Count} defined keys in Localization.lua");
-    }
-    
-    // Parse LocalizationPost.lua if it exists - only get defined keys
-    if (File.Exists(localizationPostPath))
-    {
-        var definedKeys = await parser.ParseLocalizationDefinitionsAsync(localizationPostPath);
-        existingKeys.UnionWith(definedKeys);
-        Console.WriteLine($"Found {definedKeys.Count} defined keys in LocalizationPost.lua");
-    }
-    
-    Console.WriteLine($"Total unique defined localization keys: {existingKeys.Count}");
-    Console.WriteLine(new string('=', 80));
-    
-    // Filter out strings that already have localization
-    var missingKeys = result.GlueStrings
-        .Where(kvp => !existingKeys.Contains(kvp.Key))
-        .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
-    
-    Console.WriteLine($"\nTotal unique glue strings found in code: {result.GlueStrings.Count}");
-    Console.WriteLine($"Already localized: {result.GlueStrings.Count - missingKeys.Count}");
-    Console.WriteLine($"Missing localization: {missingKeys.Count}");
-    Console.WriteLine(new string('-', 80));
-    
-    if (missingKeys.Count == 0)
-    {
-        Console.WriteLine("\n? All glue strings are already localized!");
+        enUSKeys = await parser.ParseLocalizationDefinitionsAsync(enUSPath);
+        Console.WriteLine($"Found {enUSKeys.Count} entries defined in enUS.lua");
     }
     else
     {
-        // Show non-concatenated strings that need localization
-        var nonConcat = missingKeys.Values.Where(v => !v.HasConcatenation).ToList();
-        if (nonConcat.Any())
-        {
-            Console.WriteLine($"\nNon-Concatenated Strings Needing Localization ({nonConcat.Count}):");
-            Console.WriteLine("(Glue String ? Occurrence Count)");
-            Console.WriteLine(new string('-', 80));
-            
-            foreach (var info in nonConcat.OrderBy(x => x.GlueString).Take(50))
-            {
-                Console.WriteLine($"  L[\"{info.GlueString}\"] ? {info.OccurrenceCount} occurrence(s)");
-            }
-            
-            if (nonConcat.Count > 50)
-            {
-                Console.WriteLine($"  ... and {nonConcat.Count - 50} more");
-            }
-        }
+        Console.WriteLine("ERROR: enUS.lua not found!");
+        return;
+    }
+    
+    // Parse other localization files to know what's already covered
+    var localizationPath = Path.Combine(addonPath, "Localization", "Localization.lua");
+    var localizationPostPath = Path.Combine(addonPath, "Localization", "LocalizationPost.lua");
+    
+    var otherLocKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    
+    if (File.Exists(localizationPath))
+    {
+        var keys = await parser.ParseLocalizationDefinitionsAsync(localizationPath);
+        otherLocKeys.UnionWith(keys);
+        Console.WriteLine($"Found {keys.Count} entries defined in Localization.lua");
+    }
+    
+    if (File.Exists(localizationPostPath))
+    {
+        var keys = await parser.ParseLocalizationDefinitionsAsync(localizationPostPath);
+        otherLocKeys.UnionWith(keys);
+        Console.WriteLine($"Found {keys.Count} entries defined in LocalizationPost.lua");
         
-        // Show concatenated strings with locations that need localization
-        var concat = missingKeys.Values.Where(v => v.HasConcatenation).ToList();
-        if (concat.Any())
+        // IMPORTANT: Parse usages (right side) in LocalizationPost.lua
+        // These are references to other localization strings, not definitions
+        var usedKeys = await parser.ParseLocalizationUsagesAsync(localizationPostPath);
+        Console.WriteLine($"Found {usedKeys.Count} entries referenced in LocalizationPost.lua");
+        
+        // Add these to the code usage since they're being used
+        foreach (var key in usedKeys)
         {
-            Console.WriteLine($"\nConcatenated Strings Needing Localization ({concat.Count}):");
-            Console.WriteLine("(Glue String ? Locations)");
-            Console.WriteLine(new string('-', 80));
-            
-            foreach (var info in concat.OrderBy(x => x.GlueString).Take(20))
+            if (!codeResult.GlueStrings.ContainsKey(key))
             {
-                Console.WriteLine($"  L[\"{info.GlueString}\"] ({info.OccurrenceCount} occurrence(s)):");
-                foreach (var location in info.Locations.Take(5))
+                codeResult.GlueStrings[key] = new AddonLocalizer.Core.Models.GlueStringInfo
                 {
-                    var fileName = Path.GetFileName(location.FilePath);
-                    Console.WriteLine($"    - {fileName}:{location.LineNumber}");
-                }
-                if (info.Locations.Count > 5)
-                {
-                    Console.WriteLine($"    ... and {info.Locations.Count - 5} more locations");
-                }
-            }
-            
-            if (concat.Count > 20)
-            {
-                Console.WriteLine($"  ... and {concat.Count - 20} more concatenated strings");
+                    GlueString = key,
+                    HasConcatenation = false,
+                    OccurrenceCount = 1
+                };
             }
         }
     }
+    
+    Console.WriteLine(new string('=', 80));
+    
+    // Analysis 1: Entries used in code but NOT in enUS.lua
+    var missingInEnUS = codeResult.GlueStrings.Keys
+        .Where(key => !enUSKeys.Contains(key) && !otherLocKeys.Contains(key))
+        .OrderBy(k => k)
+        .ToList();
+    
+    // Analysis 2: Entries in enUS.lua but NOT used in code
+    var orphanedInEnUS = enUSKeys
+        .Where(key => !codeResult.GlueStrings.ContainsKey(key))
+        .OrderBy(k => k)
+        .ToList();
+    
+    // Show results
+    Console.WriteLine($"\n?? ANALYSIS SUMMARY");
+    Console.WriteLine(new string('-', 80));
+    Console.WriteLine($"Total strings used in code: {codeResult.GlueStrings.Count}");
+    Console.WriteLine($"Defined in enUS.lua: {enUSKeys.Count}");
+    Console.WriteLine($"Defined in other loc files: {otherLocKeys.Count}");
+    Console.WriteLine($"Missing from enUS.lua: {missingInEnUS.Count}");
+    Console.WriteLine($"Orphaned in enUS.lua: {orphanedInEnUS.Count}");
+    Console.WriteLine(new string('=', 80));
+    
+    // Show missing entries
+    if (missingInEnUS.Any())
+    {
+        Console.WriteLine($"\n? MISSING IN enUS.lua ({missingInEnUS.Count} entries)");
+        Console.WriteLine("These are used in code but have NO localization entry:");
+        Console.WriteLine(new string('-', 80));
+        
+        foreach (var key in missingInEnUS.Take(50))
+        {
+            var info = codeResult.GlueStrings[key];
+            Console.WriteLine($"  L[\"{key}\"] = \"{key}\"  -- Used {info.OccurrenceCount}x");
+        }
+        
+        if (missingInEnUS.Count > 50)
+        {
+            Console.WriteLine($"  ... and {missingInEnUS.Count - 50} more");
+        }
+        
+        // Optionally write to file for easy copy-paste
+        var outputPath = Path.Combine(addonPath, "missing_enUS_entries.lua");
+        var missingEntries = missingInEnUS.Select(key => $"L[\"{key}\"] = \"{key}\"");
+        await File.WriteAllLinesAsync(outputPath, missingEntries);
+        Console.WriteLine($"\n?? Full list written to: {outputPath}");
+    }
+    else
+    {
+        Console.WriteLine($"\n? All code strings have enUS.lua entries!");
+    }
+    
+    // Show orphaned entries
+    if (orphanedInEnUS.Any())
+    {
+        Console.WriteLine($"\n??  ORPHANED IN enUS.lua ({orphanedInEnUS.Count} entries)");
+        Console.WriteLine("These are defined but NEVER used in code:");
+        Console.WriteLine(new string('-', 80));
+        
+        foreach (var key in orphanedInEnUS.Take(50))
+        {
+            Console.WriteLine($"  L[\"{key}\"]");
+        }
+        
+        if (orphanedInEnUS.Count > 50)
+        {
+            Console.WriteLine($"  ... and {orphanedInEnUS.Count - 50} more");
+        }
+        
+        // Write to file for review
+        var orphanedPath = Path.Combine(addonPath, "orphaned_enUS_entries.txt");
+        await File.WriteAllLinesAsync(orphanedPath, orphanedInEnUS);
+        Console.WriteLine($"\n?? Full list written to: {orphanedPath}");
+    }
+    else
+    {
+        Console.WriteLine($"\n? No orphaned entries in enUS.lua!");
+    }
+    
+    // Summary with actionable metrics
+    Console.WriteLine($"\n?? COVERAGE METRICS");
+    Console.WriteLine(new string('-', 80));
+    var coverage = ((double)(codeResult.GlueStrings.Count - missingInEnUS.Count) / codeResult.GlueStrings.Count) * 100;
+    Console.WriteLine($"enUS.lua coverage: {coverage:F1}% ({codeResult.GlueStrings.Count - missingInEnUS.Count}/{codeResult.GlueStrings.Count})");
+    
+    if (orphanedInEnUS.Any())
+    {
+        var cleanupPotential = ((double)orphanedInEnUS.Count / enUSKeys.Count) * 100;
+        Console.WriteLine($"Cleanup potential: {cleanupPotential:F1}% ({orphanedInEnUS.Count}/{enUSKeys.Count} can be removed)");
+    }
+    
+    Console.WriteLine(new string('=', 80));
 }
 catch (Exception ex)
 {

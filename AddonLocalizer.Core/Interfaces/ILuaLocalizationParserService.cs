@@ -19,4 +19,17 @@ public interface ILuaLocalizationParserService
     /// Synchronous version of ParseLocalizationDefinitionsAsync.
     /// </summary>
     HashSet<string> ParseLocalizationDefinitions(string filePath);
+    
+    /// <summary>
+    /// Parses a localization file and returns keys being used (referenced) on the right side of assignments.
+    /// This is useful for parsing LocalizationPost.lua where compound strings reference other localization keys.
+    /// Example: L["FullName"] = L["FirstName"] .. " " .. L["LastName"]
+    /// Returns: ["FirstName", "LastName"]
+    /// </summary>
+    Task<HashSet<string>> ParseLocalizationUsagesAsync(string filePath);
+    
+    /// <summary>
+    /// Synchronous version of ParseLocalizationUsagesAsync.
+    /// </summary>
+    HashSet<string> ParseLocalizationUsages(string filePath);
 }
