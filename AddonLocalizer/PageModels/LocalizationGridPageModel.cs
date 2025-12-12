@@ -37,10 +37,10 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
     private int _filteredCount;
 
     [ObservableProperty]
-    private bool _isLoading;
+    private bool _isLoading = false;
 
     [ObservableProperty]
-    private bool _hasData;
+    private bool _hasData = false;
 
     [ObservableProperty]
     private string _statusMessage = string.Empty;
@@ -67,13 +67,37 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
     private string _currentSortColumn = "GlueString";
     private bool _sortAscending = true;
 
+    public LocalizationGridPageModel()
+    {
+        Debug.WriteLine("[GridPage] Constructor called");
+    }
+
     public void ApplyQueryAttributes(IDictionary<string, object> query)
     {
-        if (query.TryGetValue("ParseResult", out var result) && result is ParseResult parseResult)
+        try
         {
-            _parseResult = parseResult;
-            Debug.WriteLine($"[GridPage] Received ParseResult with {parseResult.GlueStrings.Count} glue strings");
-            _ = LoadDataAsync();
+            if (query.TryGetValue("ParseResult", out var result) && result is ParseResult parseResult)
+            {
+                _parseResult = parseResult;
+                Debug.WriteLine($"[GridPage] Received ParseResult with {parseResult.GlueStrings.Count} glue strings");
+                
+                // Defer loading to avoid blocking navigation
+                MainThread.BeginInvokeOnMainThread(async () =>
+                {
+                    await Task.Delay(100); // Small delay to ensure page is fully loaded
+                    await LoadDataAsync();
+                });
+            }
+            else
+            {
+                Debug.WriteLine("[GridPage] No valid ParseResult in query attributes");
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[GridPage] Error in ApplyQueryAttributes: {ex.Message}");
+            Debug.WriteLine($"[GridPage] Stack trace: {ex.StackTrace}");
+            StatusMessage = $"Error applying query: {ex.Message}";
         }
     }
 
@@ -88,39 +112,83 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
             StatusMessage = "Loading entries...";
             Debug.WriteLine("[GridPage] Starting data load...");
 
+            // Create view models on background thread
             var entries = await Task.Run(() =>
             {
-                return _parseResult.GlueStrings
-                    .Select(kvp => new LocalizationEntryViewModel(kvp.Key, kvp.Value))
-                    .OrderBy(e => e.GlueString)
-                    .ToList();
+                try
+                {
+                    var result = _parseResult.GlueStrings
+                        .Select(kvp => 
+                        {
+                            try
+                            {
+                                return new LocalizationEntryViewModel(kvp.Key, kvp.Value);
+                            }
+                            catch (Exception ex)
+                            {
+                                Debug.WriteLine($"[GridPage] Error creating ViewModel for '{kvp.Key}': {ex.Message}");
+                                Debug.WriteLine($"[GridPage] Stack trace: {ex.StackTrace}");
+                                throw;
+                            }
+                        })
+                        .OrderBy(e => e.GlueString)
+                        .ToList();
+                    return result;
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[GridPage] Error in Task.Run: {ex.Message}");
+                    Debug.WriteLine($"[GridPage] Stack trace: {ex.StackTrace}");
+                    throw;
+                }
             });
 
             Debug.WriteLine($"[GridPage] Created {entries.Count} view models");
-            StatusMessage = $"Loaded {entries.Count} entries";
 
+            // Update UI on main thread - use assignment instead of Clear/Add
             await MainThread.InvokeOnMainThreadAsync(() =>
             {
-                Entries = new ObservableCollection<LocalizationEntryViewModel>(entries);
-                TotalCount = entries.Count;
-                
-                ApplyFilters();
-                
-                HasData = FilteredEntries.Count > 0;
-                
-                Debug.WriteLine($"[GridPage] HasData set to: {HasData}, FilteredCount: {FilteredCount}");
-                StatusMessage = HasData ? $"Showing {FilteredCount} of {TotalCount} entries" : "No entries to display";
+                try
+                {
+                    StatusMessage = $"Loaded {entries.Count} entries";
+                    
+                    // Create new collection instead of modifying existing
+                    Entries = new ObservableCollection<LocalizationEntryViewModel>(entries);
+                    TotalCount = entries.Count;
+                    
+                    ApplyFilters();
+                    
+                    HasData = FilteredEntries.Count > 0;
+                    
+                    Debug.WriteLine($"[GridPage] HasData set to: {HasData}, FilteredCount: {FilteredCount}");
+                    StatusMessage = HasData ? $"Showing {FilteredCount} of {TotalCount} entries" : "No entries to display";
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[GridPage] Error updating UI: {ex.Message}");
+                    Debug.WriteLine($"[GridPage] Stack trace: {ex.StackTrace}");
+                    throw;
+                }
             });
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"[GridPage] Error: {ex.Message}");
-            StatusMessage = $"Error loading data: {ex.Message}";
-            HasData = false;
+            Debug.WriteLine($"[GridPage] Error in LoadDataAsync: {ex.Message}");
+            Debug.WriteLine($"[GridPage] Inner exception: {ex.InnerException?.Message}");
+            Debug.WriteLine($"[GridPage] Stack trace: {ex.StackTrace}");
+            
+            await MainThread.InvokeOnMainThreadAsync(() =>
+            {
+                StatusMessage = $"Error loading data: {ex.Message}";
+                HasData = false;
+            });
         }
         finally
         {
-            IsLoading = false;
+            await MainThread.InvokeOnMainThreadAsync(() =>
+            {
+                IsLoading = false;
+            });
             Debug.WriteLine($"[GridPage] Loading complete. HasData={HasData}, IsLoading={IsLoading}");
         }
     }

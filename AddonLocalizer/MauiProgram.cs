@@ -4,7 +4,9 @@ using AddonLocalizer.Pages;
 using AddonLocalizer.Services;
 using CommunityToolkit.Maui;
 using Microsoft.Extensions.Logging;
+using Syncfusion.Maui.Core.Hosting;
 using Syncfusion.Maui.Toolkit.Hosting;
+using Syncfusion.Licensing;
 
 namespace AddonLocalizer
 {
@@ -12,10 +14,18 @@ namespace AddonLocalizer
     {
         public static MauiApp CreateMauiApp()
         {
+            // Register Syncfusion license from environment variable
+            var syncfusionKey = Environment.GetEnvironmentVariable("SYNCFUSION_LICENSE_KEY");
+            if (!string.IsNullOrWhiteSpace(syncfusionKey))
+            {
+                SyncfusionLicenseProvider.RegisterLicense(syncfusionKey);
+            }
+
             var builder = MauiApp.CreateBuilder();
             builder
                 .UseMauiApp<App>()
                 .UseMauiCommunityToolkit()
+                .ConfigureSyncfusionCore()
                 .ConfigureSyncfusionToolkit()
                 .ConfigureMauiHandlers(handlers =>
                 {

@@ -3,7 +3,6 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:vm="clr-namespace:AddonLocalizer.PageModels"
              xmlns:model="clr-namespace:AddonLocalizer.Models"
-             xmlns:syncfusion="clr-namespace:Syncfusion.Maui.DataGrid;assembly=Syncfusion.Maui.DataGrid"
              x:Class="AddonLocalizer.Pages.LocalizationGridPage"
              x:DataType="vm:LocalizationGridPageModel"
              Title="Localizations"
@@ -13,11 +12,9 @@
 
         <!-- Search Bar -->
         <Border Grid.Row="0" 
-                StrokeThickness="0,0,0,1"
                 Stroke="{AppThemeBinding Light={StaticResource BorderColorLight}, Dark={StaticResource BorderColorDark}}"
                 BackgroundColor="{AppThemeBinding Light={StaticResource CardBackgroundLight}, Dark={StaticResource CardBackgroundDark}}"
-                Padding="15,10"
-                StrokeShape="Rectangle">
+                Padding="15,10">
             <SearchBar Placeholder="Search glue strings..."
                        Text="{Binding SearchText}"
                        PlaceholderColor="{AppThemeBinding Light={StaticResource Gray400}, Dark={StaticResource Gray500Dark}}"
@@ -27,11 +24,10 @@
 
         <!-- Filter Controls -->
         <Border Grid.Row="1"
-                StrokeThickness="0,0,0,1"
                 Stroke="{AppThemeBinding Light={StaticResource BorderColorLight}, Dark={StaticResource BorderColorDark}}"
                 Background="{AppThemeBinding Light={StaticResource SurfaceColorLight}, Dark={StaticResource SurfaceColorDark}}"
-                Padding="15,10"
-                StrokeShape="Rectangle">
+                Padding="15,10">
+            
             <Grid ColumnDefinitions="*,*,*,Auto" ColumnSpacing="15">
                 
                 <HorizontalStackLayout Grid.Column="0" Spacing="10">
@@ -69,7 +65,7 @@
         </Border>
 
         <!-- Syncfusion DataGrid -->
-        <Grid Grid.Row="2">
+        <Grid Grid.Row="2" x:Name="gridContainer">
             
             <!-- Loading Indicator -->
             <ActivityIndicator IsRunning="{Binding IsLoading}"
@@ -78,62 +74,11 @@
                               VerticalOptions="Center"
                               HorizontalOptions="Center"
                               WidthRequest="50"
-                              HeightRequest="50"/>
+                              HeightRequest="50"
+                              ZIndex="2"/>
+            
+            <!-- DataGrid will be added programmatically -->
 
-            <!-- Syncfusion DataGrid -->
-            <syncfusion:SfDataGrid x:Name="dataGrid"
-                                  ItemsSource="{Binding FilteredEntries}"
-                                  IsVisible="{Binding HasData}"
-                                  SelectionMode="Single"
-                                  SelectedRow="{Binding SelectedEntry, Mode=TwoWay}"
-                                  AllowSorting="True"
-                                  AllowResizingColumns="True"
-                                  AutoGenerateColumnsMode="None"
-                                  ColumnWidthMode="Auto"
-                                  HeaderRowHeight="48"
-                                  RowHeight="44"
-                                  GridLinesVisibility="Both"
-                                  HeaderGridLinesVisibility="Both">
-
-                <syncfusion:SfDataGrid.Columns>
-                    
-                    <syncfusion:DataGridTextColumn HeaderText="Glue String"
-                                                  MappingName="GlueString"
-                                                  Width="300"
-                                                  MinimumWidth="100"/>
-
-                    <syncfusion:DataGridTextColumn HeaderText="Count"
-                                                  MappingName="OccurrenceCount"
-                                                  Width="80"
-                                                  MinimumWidth="60"
-                                                  TextAlignment="Center"/>
-
-                    <syncfusion:DataGridTextColumn HeaderText="Concat"
-                                                  MappingName="ConcatenationIcon"
-                                                  Width="80"
-                                                  MinimumWidth="60"
-                                                  TextAlignment="Center"/>
-
-                    <syncfusion:DataGridTextColumn HeaderText="Format"
-                                                  MappingName="StringFormatIcon"
-                                                  Width="80"
-                                                  MinimumWidth="60"
-                                                  TextAlignment="Center"/>
-
-                    <syncfusion:DataGridTextColumn HeaderText="Params"
-                                                  MappingName="ParameterCount"
-                                                  Width="80"
-                                                  MinimumWidth="60"
-                                                  TextAlignment="Center"/>
-
-                    <syncfusion:DataGridTextColumn HeaderText="Files"
-                                                  MappingName="FileLocations"
-                                                  Width="200"
-                                                  MinimumWidth="100"/>
-
-                </syncfusion:SfDataGrid.Columns>
-
-            </syncfusion:SfDataGrid>
         </Grid>
 
     </Grid>

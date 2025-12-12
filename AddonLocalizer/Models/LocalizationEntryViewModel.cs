@@ -49,9 +49,16 @@ public partial class LocalizationEntryViewModel : ObservableObject
         // Use HashSet for efficient distinct file tracking
         var distinctFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var displayFiles = new List<string>(3);
-        displayFiles.AddRange(info.Locations.Select(location => Path.GetFileName(location.FilePath)).Where(fileName => distinctFiles.Add(fileName)));
-
+        
         // Single pass through locations
+        foreach (var location in info.Locations)
+        {
+            var fileName = Path.GetFileName(location.FilePath);
+            if (distinctFiles.Add(fileName))
+            {
+                displayFiles.Add(fileName);
+            }
+        }
 
         var summary = string.Join(", ", displayFiles);
 
