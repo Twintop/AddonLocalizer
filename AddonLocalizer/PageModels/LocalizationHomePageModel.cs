@@ -1,4 +1,5 @@
 using AddonLocalizer.Core.Interfaces;
+using AddonLocalizer.Core.Models;
 using AddonLocalizer.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -30,6 +31,9 @@ public partial class LocalizationHomePageModel : ObservableObject
     private int _stringFormatEntries;
 
     [ObservableProperty]
+    private int _loadedLocales;
+
+    [ObservableProperty]
     private bool _hasData;
 
     [ObservableProperty]
@@ -37,6 +41,9 @@ public partial class LocalizationHomePageModel : ObservableObject
 
     [ObservableProperty]
     private bool _canCancel;
+
+    [ObservableProperty]
+    private bool _hasLocalizationFolder;
 
     public LocalizationHomePageModel(
         IFolderPickerService folderPickerService,
@@ -53,7 +60,25 @@ public partial class LocalizationHomePageModel : ObservableObject
         if (Preferences.Default.ContainsKey("last_directory"))
         {
             SelectedDirectory = Preferences.Default.Get("last_directory", string.Empty);
+            CheckForLocalizationFolder();
         }
+    }
+
+    partial void OnSelectedDirectoryChanged(string? value)
+    {
+        CheckForLocalizationFolder();
+    }
+
+    private void CheckForLocalizationFolder()
+    {
+        if (string.IsNullOrWhiteSpace(SelectedDirectory))
+        {
+            HasLocalizationFolder = false;
+            return;
+        }
+
+        var localizationDir = Path.Combine(SelectedDirectory, "Localization");
+        HasLocalizationFolder = Directory.Exists(localizationDir);
     }
 
     [RelayCommand]
@@ -86,13 +111,16 @@ public partial class LocalizationHomePageModel : ObservableObject
             IsLoading = true;
             CanCancel = true;
             Progress = 0;
-            StatusMessage = "Parsing localization files...";
+            StatusMessage = "Parsing addon files...";
 
-            var result = await Task.Run(() =>
+            // Step 1: Parse the addon directory for glue string usage
+            Progress = 0.1;
+            var parseResult = await Task.Run(() =>
             {
                 try
                 {
-                    return _parserService.ParseDirectory(SelectedDirectory);
+                    // Exclude Localization directory when scanning for usage
+                    return _parserService.ParseDirectory(SelectedDirectory, ["Localization"]);
                 }
                 catch (OperationCanceledException)
                 {
@@ -100,23 +128,92 @@ public partial class LocalizationHomePageModel : ObservableObject
                 }
             }, _cancellationTokenSource.Token);
 
-            if (result == null)
+            if (parseResult == null)
             {
                 StatusMessage = "Parsing cancelled";
                 return;
             }
 
-            TotalEntries = result.GlueStrings.Count;
-            ConcatenatedEntries = result.Concatenated.Count();
-            StringFormatEntries = result.WithStringFormat.Count();
+            Progress = 0.5;
+            StatusMessage = "Loading localization files...";
+
+            // Step 2: Check if Localization directory exists and load locale files
+            LocalizationDataSet? localizationData = null;
+            var localizationDir = Path.Combine(SelectedDirectory, "Localization");
+            
+            if (Directory.Exists(localizationDir))
+            {
+                try
+                {
+                    localizationData = await Task.Run(() =>
+                    {
+                        try
+                        {
+                            // Parse all locale files, excluding *GT.lua (Google Translate)
+                            return _parserService.ParseLocalizationDirectoryAsync(localizationDir, ["GT.lua"]).Result;
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            return null;
+                        }
+                    }, _cancellationTokenSource.Token);
+
+                    if (localizationData != null)
+                    {
+                        LoadedLocales = localizationData.LoadedLocales.Count();
+                        
+                        // Parse format parameters from enUS if available
+                        var enUsFile = Path.Combine(localizationDir, "enUS.lua");
+                        if (File.Exists(enUsFile))
+                        {
+                            var formatParams = await _parserService.ParseFormatParametersAsync(enUsFile);
+                            
+                            // Add format parameters to matching glue strings
+                            foreach (var (key, parameters) in formatParams)
+                            {
+                                if (parseResult.GlueStrings.TryGetValue(key, out var info))
+                                {
+                                    info.FormatParameters = parameters;
+                                }
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    StatusMessage = $"Warning: Error loading localization files: {ex.Message}";
+                    // Continue with just the parse result
+                }
+            }
+
+            Progress = 1.0;
+
+            TotalEntries = parseResult.GlueStrings.Count;
+            ConcatenatedEntries = parseResult.Concatenated.Count();
+            StringFormatEntries = parseResult.WithStringFormat.Count();
             HasData = TotalEntries > 0;
 
-            StatusMessage = $"Parsed {TotalEntries} localization entries";
+            var localeInfo = LoadedLocales > 0 ? $" with {LoadedLocales} locales" : "";
+            StatusMessage = $"Parsed {TotalEntries} localization entries{localeInfo}";
 
-            await Shell.Current.GoToAsync("localizations", new Dictionary<string, object>
+            // Navigate to grid page with both parse result and localization data
+            var navigationParams = new Dictionary<string, object>
             {
-                { "ParseResult", result }
-            });
+                { "ParseResult", parseResult }
+            };
+
+            if (localizationData != null)
+            {
+                navigationParams.Add("LocalizationData", localizationData);
+            }
+
+            // Pass the localization directory for saving
+            if (Directory.Exists(localizationDir))
+            {
+                navigationParams.Add("LocalizationDirectory", localizationDir);
+            }
+
+            await Shell.Current.GoToAsync("localizations", navigationParams);
         }
         catch (OperationCanceledException)
         {
@@ -153,5 +250,7 @@ public partial class LocalizationHomePageModel : ObservableObject
         TotalEntries = 0;
         ConcatenatedEntries = 0;
         StringFormatEntries = 0;
+        LoadedLocales = 0;
+        HasLocalizationFolder = false;
     }
 }

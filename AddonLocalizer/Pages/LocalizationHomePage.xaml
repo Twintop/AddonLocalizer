@@ -42,6 +42,23 @@
                            FontSize="14"
                            TextColor="{AppThemeBinding Light={StaticResource Primary}, Dark={StaticResource PrimaryDark}}"/>
 
+                    <!-- Localization Folder Indicator -->
+                    <HorizontalStackLayout Spacing="8" 
+                                          IsVisible="{Binding SelectedDirectory, Converter={StaticResource IsNotNullConverter}}">
+                        <Label Text="📁"
+                               FontSize="16"
+                               VerticalOptions="Center"/>
+                        <Label Text="Localization folder:"
+                               FontSize="14"
+                               VerticalOptions="Center"
+                               TextColor="{AppThemeBinding Light={StaticResource TextPrimaryLight}, Dark={StaticResource TextPrimaryDark}}"/>
+                        <Label Text="{Binding HasLocalizationFolder, Converter={StaticResource BoolToStringConverter}, ConverterParameter='Found|Not Found'}"
+                               FontSize="14"
+                               FontAttributes="Bold"
+                               VerticalOptions="Center"
+                               TextColor="{Binding HasLocalizationFolder, Converter={StaticResource BoolToColorConverter}, ConverterParameter='#2E7D32|#D32F2F'}"/>
+                    </HorizontalStackLayout>
+
                     <HorizontalStackLayout Spacing="10">
                         <Button Text="Browse..."
                                 Command="{Binding SelectDirectoryCommand}"
@@ -78,6 +95,12 @@
                                 HeightRequest="50"
                                 HorizontalOptions="Fill"/>
                     </HorizontalStackLayout>
+
+                    <!-- Progress Bar -->
+                    <ProgressBar Progress="{Binding Progress}"
+                                IsVisible="{Binding IsLoading}"
+                                ProgressColor="{AppThemeBinding Light={StaticResource Primary}, Dark={StaticResource PrimaryDark}}"
+                                HeightRequest="10"/>
 
                 </VerticalStackLayout>
             </Border>
@@ -121,7 +144,7 @@
                            FontAttributes="Bold"
                            TextColor="{AppThemeBinding Light={StaticResource TextPrimaryLight}, Dark={StaticResource TextPrimaryDark}}"/>
 
-                    <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="20" RowSpacing="10">
+                    <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,Auto,Auto" ColumnSpacing="20" RowSpacing="10">
                         
                         <Label Grid.Row="0" Grid.Column="0"
                                Text="Total Entries:"
@@ -146,6 +169,17 @@
                         <Label Grid.Row="2" Grid.Column="1"
                                Text="{Binding StringFormatEntries}"
                                TextColor="{AppThemeBinding Light={StaticResource TextPrimaryLight}, Dark={StaticResource TextPrimaryDark}}"/>
+
+                        <Label Grid.Row="3" Grid.Column="0"
+                               Text="Loaded Locales:"
+                               FontAttributes="Bold"
+                               IsVisible="{Binding LoadedLocales, Converter={StaticResource GreaterThanZeroConverter}}"
+                               TextColor="{AppThemeBinding Light={StaticResource TextPrimaryLight}, Dark={StaticResource TextPrimaryDark}}"/>
+                        <Label Grid.Row="3" Grid.Column="1"
+                               Text="{Binding LoadedLocales}"
+                               IsVisible="{Binding LoadedLocales, Converter={StaticResource GreaterThanZeroConverter}}"
+                               TextColor="{AppThemeBinding Light={StaticResource Primary}, Dark={StaticResource PrimaryDark}}"
+                               FontAttributes="Bold"/>
 
                     </Grid>
 

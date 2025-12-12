@@ -9,7 +9,7 @@
              Title="Localizations"
              BackgroundColor="{AppThemeBinding Light={StaticResource PageBackgroundLight}, Dark={StaticResource PageBackgroundDark}}">
 
-    <Grid RowDefinitions="Auto,Auto,*">
+    <Grid RowDefinitions="Auto,Auto,Auto,*,Auto">
 
         <!-- Search Bar -->
         <Border Grid.Row="0" 
@@ -29,7 +29,7 @@
                 Background="{AppThemeBinding Light={StaticResource SurfaceColorLight}, Dark={StaticResource SurfaceColorDark}}"
                 Padding="15,10">
             
-            <Grid ColumnDefinitions="*,*,*,Auto" ColumnSpacing="15">
+            <Grid ColumnDefinitions="*,*,*,*,Auto,Auto" ColumnSpacing="15">
                 
                 <HorizontalStackLayout Grid.Column="0" Spacing="10">
                     <CheckBox IsChecked="{Binding ShowOnlyConcatenated}"
@@ -55,18 +55,89 @@
                            TextColor="{AppThemeBinding Light={StaticResource TextPrimaryLight}, Dark={StaticResource TextPrimaryDark}}"/>
                 </HorizontalStackLayout>
 
-                <Button Grid.Column="3" 
+                <HorizontalStackLayout Grid.Column="3" Spacing="10">
+                    <CheckBox IsChecked="{Binding ShowOnlyMissingTranslations}"
+                              Color="{AppThemeBinding Light={StaticResource Primary}, Dark={StaticResource PrimaryDark}}"/>
+                    <Label Text="Missing Translations" 
+                           VerticalOptions="Center"
+                           TextColor="{AppThemeBinding Light={StaticResource TextPrimaryLight}, Dark={StaticResource TextPrimaryDark}}"/>
+                </HorizontalStackLayout>
+
+                <Button Grid.Column="4" 
                         Text="Clear Filters"
                         Command="{Binding ClearFiltersCommand}"
                         BackgroundColor="{AppThemeBinding Light={StaticResource Gray300}, Dark={StaticResource Gray400Dark}}"
                         TextColor="{AppThemeBinding Light={StaticResource Gray900}, Dark={StaticResource TextPrimaryDark}}"
                         Padding="15,5"/>
+                
+                <!-- Temporary Test Button -->
+                <Button Grid.Column="5" 
+                        Text="Test Edit"
+                        Command="{Binding TestEditCommand}"
+                        BackgroundColor="#FF6B6B"
+                        TextColor="White"
+                        Padding="15,5"
+                        Margin="10,0,0,0"/>
 
             </Grid>
         </Border>
 
+        <!-- Save/Discard Bar -->
+        <Border Grid.Row="2"
+                Stroke="#FF9800"
+                Background="{AppThemeBinding Light=#FFF3E0, Dark=#3E2723}"
+                Padding="15,10"
+                IsVisible="{Binding HasUnsavedChanges}">
+            
+            <Grid RowDefinitions="Auto,Auto" RowSpacing="8">
+                <!-- Buttons Row -->
+                <HorizontalStackLayout Grid.Row="0" Spacing="15">
+                    <Label Text="💾"
+                           FontSize="20"
+                           VerticalOptions="Center"/>
+                    <Label Text="{Binding ModifiedEntryCount, StringFormat='{}{0} unsaved change(s)'}"
+                           FontSize="14"
+                           FontAttributes="Bold"
+                           VerticalOptions="Center"
+                           TextColor="{AppThemeBinding Light=#E65100, Dark=#FFB74D}"/>
+                    <Button Text="💾 Save Changes"
+                            Command="{Binding SaveChangesCommand}"
+                            BackgroundColor="#4CAF50"
+                            TextColor="White"
+                            FontAttributes="Bold"
+                            Padding="20,8"
+                            HorizontalOptions="Start"/>
+                    <Button Text="❌ Discard"
+                            Command="{Binding DiscardChangesCommand}"
+                            BackgroundColor="#F44336"
+                            TextColor="White"
+                            Padding="20,8"
+                            HorizontalOptions="Start"/>
+                    <Button Text="🔄 Reload"
+                            Command="{Binding ReloadCommand}"
+                            BackgroundColor="{AppThemeBinding Light={StaticResource Primary}, Dark={StaticResource PrimaryDark}}"
+                            TextColor="White"
+                            Padding="20,8"
+                            HorizontalOptions="Start"/>
+                    <ActivityIndicator IsRunning="{Binding IsSaving}"
+                                      IsVisible="{Binding IsSaving}"
+                                      Color="{AppThemeBinding Light={StaticResource Primary}, Dark={StaticResource PrimaryDark}}"
+                                      WidthRequest="24"
+                                      HeightRequest="24"
+                                      VerticalOptions="Center"/>
+                </HorizontalStackLayout>
+                
+                <!-- Progress Bar -->
+                <ProgressBar Grid.Row="1"
+                            Progress="{Binding SaveProgress}"
+                            IsVisible="{Binding IsSaving}"
+                            ProgressColor="#4CAF50"
+                            HeightRequest="6"/>
+            </Grid>
+        </Border>
+
         <!-- Syncfusion DataGrid -->
-        <Grid Grid.Row="2" x:Name="gridContainer">
+        <Grid Grid.Row="3" x:Name="gridContainer">
             
             <!-- Loading Indicator -->
             <ActivityIndicator IsRunning="{Binding IsLoading}"
@@ -82,11 +153,13 @@
             <syncfusion:SfDataGrid x:Name="dataGrid"
                                    ItemsSource="{Binding FilteredEntries}"
                                    IsVisible="{Binding HasData}"
-                                   SelectionMode="None"
+                                   SelectionMode="Single"
+                                   NavigationMode="Cell"
                                    AutoGenerateColumnsMode="None"
                                    AllowResizingColumns="True"
-                                   AllowSorting="True"
-                                   ColumnWidthMode="Fill"
+                                   AllowEditing="True"
+                                   EditTapAction="OnTap"
+                                   ColumnWidthMode="Auto"
                                    HeaderRowHeight="48"
                                    RowHeight="44"
                                    HorizontalOptions="Fill"
@@ -98,46 +171,143 @@
                 <syncfusion:SfDataGrid.DefaultStyle>
                     <syncfusion:DataGridStyle HeaderRowTextColor="{AppThemeBinding Light={StaticResource Primary}, Dark={StaticResource PrimaryDark}}"
                                               HeaderRowFontAttributes="Bold"
-                                              HeaderRowFontSize="20"
-                                             RowTextColor="{AppThemeBinding Light={StaticResource Gray900}, Dark={StaticResource TextPrimaryDark}}"/>
+                                              HeaderRowFontSize="14"
+                                              RowTextColor="{AppThemeBinding Light={StaticResource Gray900}, Dark={StaticResource TextPrimaryDark}}"
+                                              RowFontSize="13"/>
                 </syncfusion:SfDataGrid.DefaultStyle>
-                
+
                 <syncfusion:SfDataGrid.Columns>
+                    <!-- Frozen: Glue String column -->
                     <syncfusion:DataGridTextColumn HeaderText="Glue String" 
                                                   MappingName="GlueString" 
-                                                  ColumnWidthMode="Fill"
+                                                  ColumnWidthMode="Auto"
                                                   MinimumWidth="200"
-                                                  AllowSorting="True"/>
+                                                  AllowSorting="True"
+                                                  AllowEditing="False"/>
+                    
+                    <!-- Metadata columns -->
                     <syncfusion:DataGridTextColumn HeaderText="Count" 
                                                   MappingName="OccurrenceCount" 
                                                   ColumnWidthMode="Auto"
                                                   MinimumWidth="60"
-                                                  AllowSorting="True"/>
+                                                  AllowSorting="True"
+                                                  AllowEditing="False"/>
                     <syncfusion:DataGridTextColumn HeaderText="Concat" 
                                                   MappingName="ConcatenationIcon" 
                                                   ColumnWidthMode="Auto"
                                                   MinimumWidth="60"
-                                                  AllowSorting="True"/>
+                                                  AllowSorting="True"
+                                                  AllowEditing="False"/>
                     <syncfusion:DataGridTextColumn HeaderText="Format" 
                                                   MappingName="StringFormatIcon" 
                                                   ColumnWidthMode="Auto"
                                                   MinimumWidth="60"
-                                                  AllowSorting="True"/>
+                                                  AllowSorting="True"
+                                                  AllowEditing="False"/>
                     <syncfusion:DataGridTextColumn HeaderText="Params" 
                                                   MappingName="ParameterCount" 
                                                   ColumnWidthMode="Auto"
                                                   MinimumWidth="60"
-                                                  AllowSorting="True"/>
+                                                  AllowSorting="True"
+                                                  AllowEditing="False"/>
                     <syncfusion:DataGridTextColumn HeaderText="Files" 
                                                   MappingName="FileLocations" 
-                                                  ColumnWidthMode="Fill"
+                                                  ColumnWidthMode="Auto"
                                                   MinimumWidth="150"
-                                                  AllowSorting="True"/>
+                                                  AllowSorting="True"
+                                                  AllowEditing="False"/>
+                    
+                    <!-- Locale columns - editable, in WoW locale order -->
+                    <syncfusion:DataGridTextColumn HeaderText="enUS" 
+                                                  MappingName="EnUS" 
+                                                  ColumnWidthMode="Fill"
+                                                  MinimumWidth="200"
+                                                  AllowEditing="True"/>
+                    <syncfusion:DataGridTextColumn HeaderText="enGB" 
+                                                  MappingName="EnGB" 
+                                                  ColumnWidthMode="Fill"
+                                                  MinimumWidth="200"
+                                                  AllowEditing="True"/>
+                    <syncfusion:DataGridTextColumn HeaderText="enTW" 
+                                                  MappingName="EnTW" 
+                                                  ColumnWidthMode="Fill"
+                                                  MinimumWidth="200"
+                                                  AllowEditing="True"/>
+                    <syncfusion:DataGridTextColumn HeaderText="enCN" 
+                                                  MappingName="EnCN" 
+                                                  ColumnWidthMode="Fill"
+                                                  MinimumWidth="200"
+                                                  AllowEditing="True"/>
+                    <syncfusion:DataGridTextColumn HeaderText="deDE" 
+                                                  MappingName="DeDE" 
+                                                  ColumnWidthMode="Fill"
+                                                  MinimumWidth="200"
+                                                  AllowEditing="True"/>
+                    <syncfusion:DataGridTextColumn HeaderText="esES" 
+                                                  MappingName="EsES" 
+                                                  ColumnWidthMode="Fill"
+                                                  MinimumWidth="200"
+                                                  AllowEditing="True"/>
+                    <syncfusion:DataGridTextColumn HeaderText="esMX" 
+                                                  MappingName="EsMX" 
+                                                  ColumnWidthMode="Fill"
+                                                  MinimumWidth="200"
+                                                  AllowEditing="True"/>
+                    <syncfusion:DataGridTextColumn HeaderText="frFR" 
+                                                  MappingName="FrFR" 
+                                                  ColumnWidthMode="Fill"
+                                                  MinimumWidth="200"
+                                                  AllowEditing="True"/>
+                    <syncfusion:DataGridTextColumn HeaderText="itIT" 
+                                                  MappingName="ItIT" 
+                                                  ColumnWidthMode="Fill"
+                                                  MinimumWidth="200"
+                                                  AllowEditing="True"/>
+                    <syncfusion:DataGridTextColumn HeaderText="koKR" 
+                                                  MappingName="KoKR" 
+                                                  ColumnWidthMode="Fill"
+                                                  MinimumWidth="200"
+                                                  AllowEditing="True"/>
+                    <syncfusion:DataGridTextColumn HeaderText="ptBR" 
+                                                  MappingName="PtBR" 
+                                                  ColumnWidthMode="Fill"
+                                                  MinimumWidth="200"
+                                                  AllowEditing="True"/>
+                    <syncfusion:DataGridTextColumn HeaderText="ptPT" 
+                                                  MappingName="PtPT" 
+                                                  ColumnWidthMode="Fill"
+                                                  MinimumWidth="200"
+                                                  AllowEditing="True"/>
+                    <syncfusion:DataGridTextColumn HeaderText="ruRU" 
+                                                  MappingName="RuRU" 
+                                                  ColumnWidthMode="Fill"
+                                                  MinimumWidth="200"
+                                                  AllowEditing="True"/>
+                    <syncfusion:DataGridTextColumn HeaderText="zhCN" 
+                                                  MappingName="ZhCN" 
+                                                  ColumnWidthMode="Fill"
+                                                  MinimumWidth="200"
+                                                  AllowEditing="True"/>
+                    <syncfusion:DataGridTextColumn HeaderText="zhTW" 
+                                                  MappingName="ZhTW" 
+                                                  ColumnWidthMode="Fill"
+                                                  MinimumWidth="200"
+                                                  AllowEditing="True"/>
                 </syncfusion:SfDataGrid.Columns>
                 
             </syncfusion:SfDataGrid>
 
         </Grid>
+
+        <!-- Status Bar -->
+        <Border Grid.Row="4"
+                Stroke="{AppThemeBinding Light={StaticResource BorderColorLight}, Dark={StaticResource BorderColorDark}}"
+                Background="{AppThemeBinding Light={StaticResource SurfaceColorLight}, Dark={StaticResource SurfaceColorDark}}"
+                Padding="15,8">
+            <Label Text="{Binding StatusMessage}"
+                   FontSize="12"
+                   TextColor="{AppThemeBinding Light={StaticResource TextSecondaryLight}, Dark={StaticResource TextSecondaryDark}}"/>
+        </Border>
 
     </Grid>
 

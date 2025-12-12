@@ -34,6 +34,27 @@ namespace AddonLocalizer
     				{
     					handler.PlatformView.SingleSelectionFollowsFocus = false;
     				});
+    				
+    				// Force Entry and Editor text colors on Windows for better visibility in dark mode
+    				Microsoft.Maui.Handlers.EntryHandler.Mapper.AppendToMapping("ForceDarkModeColors", (handler, view) =>
+    				{
+    					if (view.TextColor != null && handler.PlatformView != null)
+    					{
+    						var color = view.TextColor;
+    						handler.PlatformView.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(
+    							Microsoft.UI.Colors.White);
+    					}
+    				});
+    				
+    				Microsoft.Maui.Handlers.EditorHandler.Mapper.AppendToMapping("ForceDarkModeColors", (handler, view) =>
+    				{
+    					if (view.TextColor != null && handler.PlatformView != null)
+    					{
+    						var color = view.TextColor;
+    						handler.PlatformView.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(
+    							Microsoft.UI.Colors.White);
+    					}
+    				});
 #endif
                 })
                 .ConfigureFonts(fonts =>
@@ -51,6 +72,9 @@ namespace AddonLocalizer
 
             // Register Core services
             builder.Services.AddAddonLocalizerCore();
+
+            // Register application services
+            builder.Services.AddSingleton<IDialogService, DialogService>();
 
             // Register platform-specific services
 #if WINDOWS

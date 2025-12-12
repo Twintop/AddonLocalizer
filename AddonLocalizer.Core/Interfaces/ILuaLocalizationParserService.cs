@@ -40,4 +40,26 @@ public interface ILuaLocalizationParserService
     /// Returns: { "Template": [FormatParameter(String), FormatParameter(Integer)] }
     /// </summary>
     Task<Dictionary<string, List<FormatParameter>>> ParseFormatParametersAsync(string filePath);
+    
+    /// <summary>
+    /// Parses a locale-specific file to extract translations.
+    /// Example: Localization/deDE.lua contains German translations
+    /// </summary>
+    /// <param name="filePath">Path to locale file</param>
+    /// <returns>Dictionary of glue string -> translated value</returns>
+    Task<Dictionary<string, string>> ParseLocaleTranslationsAsync(string filePath);
+    
+    /// <summary>
+    /// Synchronous version of ParseLocaleTranslationsAsync.
+    /// </summary>
+    Dictionary<string, string> ParseLocaleTranslations(string filePath);
+    
+    /// <summary>
+    /// Parses entire Localization directory, loading all locale files.
+    /// Automatically excludes Google Translate files (*GT.lua) by default.
+    /// </summary>
+    /// <param name="localizationDir">Path to Localization directory</param>
+    /// <param name="excludePatterns">Patterns to exclude (default: ["GT.lua"])</param>
+    /// <returns>Complete localization dataset with all locales</returns>
+    Task<LocalizationDataSet> ParseLocalizationDirectoryAsync(string localizationDir, string[]? excludePatterns = null);
 }

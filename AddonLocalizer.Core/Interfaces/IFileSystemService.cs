@@ -9,4 +9,6 @@ public interface IFileSystemService
     string ReadAllText(string path);
     Task<string[]> ReadAllLinesAsync(string path);
     string[] ReadAllLines(string path);
+    Task WriteAllTextAsync(string path, string contents);
+    Task WriteAllLinesAsync(string path, IEnumerable<string> lines);
 }

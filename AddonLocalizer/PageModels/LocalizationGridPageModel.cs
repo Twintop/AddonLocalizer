@@ -1,6 +1,9 @@
 using System.Collections.ObjectModel;
+using AddonLocalizer.Core.Interfaces;
 using AddonLocalizer.Core.Models;
+using AddonLocalizer.Core.Services;
 using AddonLocalizer.Models;
+using AddonLocalizer.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using System.Diagnostics;
@@ -9,6 +12,9 @@ namespace AddonLocalizer.PageModels;
 
 public partial class LocalizationGridPageModel : ObservableObject, IQueryAttributable
 {
+    private readonly ILocalizationFileWriterService _fileWriter;
+    private readonly IDialogService _dialogService;
+
     [ObservableProperty]
     private ObservableCollection<LocalizationEntryViewModel> _entries = [];
 
@@ -28,6 +34,9 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
     private bool _showOnlyWithParameters;
 
     [ObservableProperty]
+    private bool _showOnlyMissingTranslations;
+
+    [ObservableProperty]
     private LocalizationEntryViewModel? _selectedEntry;
 
     [ObservableProperty]
@@ -41,6 +50,9 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
 
     [ObservableProperty]
     private bool _hasData = false;
+
+    [ObservableProperty]
+    private bool _isSaving = false;
 
     [ObservableProperty]
     private string _statusMessage = string.Empty;
@@ -63,12 +75,25 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
     [ObservableProperty]
     private string _filesHeader = "Files";
 
+    [ObservableProperty]
+    private bool _hasUnsavedChanges;
+
+    [ObservableProperty]
+    private int _modifiedEntryCount;
+
+    [ObservableProperty]
+    private double _saveProgress;
+
     private ParseResult? _parseResult;
+    private LocalizationDataSet? _localizationData;
+    private string? _localizationDirectory;
     private string _currentSortColumn = "GlueString";
     private bool _sortAscending = true;
 
-    public LocalizationGridPageModel()
+    public LocalizationGridPageModel(ILocalizationFileWriterService fileWriter, IDialogService dialogService)
     {
+        _fileWriter = fileWriter;
+        _dialogService = dialogService;
         Debug.WriteLine("[GridPage] Constructor called");
     }
 
@@ -80,6 +105,28 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
             {
                 _parseResult = parseResult;
                 Debug.WriteLine($"[GridPage] Received ParseResult with {parseResult.GlueStrings.Count} glue strings");
+                
+                // Check for localization data
+                if (query.TryGetValue("LocalizationData", out var locData) && locData is LocalizationDataSet localizationDataSet)
+                {
+                    _localizationData = localizationDataSet;
+                    Debug.WriteLine($"[GridPage] Received LocalizationData with {localizationDataSet.LoadedLocales.Count()} locales");
+                }
+                else
+                {
+                    Debug.WriteLine($"[GridPage] WARNING: No LocalizationData received!");
+                }
+
+                // Check for localization directory path
+                if (query.TryGetValue("LocalizationDirectory", out var locDir) && locDir is string localizationDir)
+                {
+                    _localizationDirectory = localizationDir;
+                    Debug.WriteLine($"[GridPage] Received LocalizationDirectory: {localizationDir}");
+                }
+                else
+                {
+                    Debug.WriteLine($"[GridPage] WARNING: No LocalizationDirectory received!");
+                }
                 
                 // Defer loading to avoid blocking navigation
                 MainThread.BeginInvokeOnMainThread(async () =>
@@ -122,7 +169,8 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
                         {
                             try
                             {
-                                return new LocalizationEntryViewModel(kvp.Key, kvp.Value);
+                                // Pass localization data to ViewModel
+                                return new LocalizationEntryViewModel(kvp.Key, kvp.Value, _localizationData);
                             }
                             catch (Exception ex)
                             {
@@ -161,7 +209,21 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
                     HasData = FilteredEntries.Count > 0;
                     
                     Debug.WriteLine($"[GridPage] HasData set to: {HasData}, FilteredCount: {FilteredCount}");
-                    StatusMessage = HasData ? $"Showing {FilteredCount} of {TotalCount} entries" : "No entries to display";
+                    
+                    var localeInfo = _localizationData != null 
+                        ? $" with {_localizationData.LoadedLocales.Count()} locales" 
+                        : "";
+                    StatusMessage = HasData 
+                        ? $"Showing {FilteredCount} of {TotalCount} entries{localeInfo}" 
+                        : "No entries to display";
+
+                    // Setup property change monitoring for entries
+                    foreach (var entry in Entries)
+                    {
+                        entry.PropertyChanged += Entry_PropertyChanged;
+                    }
+
+                    UpdateChangeTracking();
                 }
                 catch (Exception ex)
                 {
@@ -193,6 +255,36 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
         }
     }
 
+    private void Entry_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        // Check if a locale property changed
+        if (e.PropertyName?.StartsWith("En") == true || 
+            e.PropertyName?.StartsWith("De") == true ||
+            e.PropertyName?.StartsWith("Es") == true ||
+            e.PropertyName?.StartsWith("Fr") == true ||
+            e.PropertyName?.StartsWith("It") == true ||
+            e.PropertyName?.StartsWith("Ko") == true ||
+            e.PropertyName?.StartsWith("Pt") == true ||
+            e.PropertyName?.StartsWith("Ru") == true ||
+            e.PropertyName?.StartsWith("Zh") == true)
+        {
+            UpdateChangeTracking();
+        }
+    }
+
+    private void UpdateChangeTracking()
+    {
+        var modifiedEntries = GetModifiedEntries().ToList();
+        ModifiedEntryCount = modifiedEntries.Count;
+        HasUnsavedChanges = ModifiedEntryCount > 0;
+        
+        // Notify command state changes
+        SaveChangesCommand.NotifyCanExecuteChanged();
+        DiscardChangesCommand.NotifyCanExecuteChanged();
+        
+        Debug.WriteLine($"[GridPage] Change tracking updated: {ModifiedEntryCount} modified entries");
+    }
+
     partial void OnSearchTextChanged(string value)
     {
         ApplyFilters();
@@ -209,6 +301,11 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
     }
 
     partial void OnShowOnlyWithParametersChanged(bool value)
+    {
+        ApplyFilters();
+    }
+
+    partial void OnShowOnlyMissingTranslationsChanged(bool value)
     {
         ApplyFilters();
     }
@@ -245,6 +342,11 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
         if (ShowOnlyWithParameters)
         {
             filtered = filtered.Where(e => e.ParameterCount > 0);
+        }
+
+        if (ShowOnlyMissingTranslations)
+        {
+            filtered = filtered.Where(e => e.IsMissingTranslations);
         }
 
         filtered = ApplySort(filtered);
@@ -321,6 +423,7 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
         ShowOnlyConcatenated = false;
         ShowOnlyStringFormat = false;
         ShowOnlyWithParameters = false;
+        ShowOnlyMissingTranslations = false;
     }
 
     [RelayCommand]
@@ -334,10 +437,245 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
         });
     }
 
+    [RelayCommand(CanExecute = nameof(CanSaveChanges))]
+    private async Task SaveChanges()
+    {
+        if (string.IsNullOrWhiteSpace(_localizationDirectory))
+        {
+            await _dialogService.ShowAlertAsync("Error", "Localization directory not set. Cannot save changes.");
+            return;
+        }
+
+        var modifiedEntries = GetModifiedEntries().ToList();
+        if (modifiedEntries.Count == 0)
+        {
+            await _dialogService.ShowAlertAsync("No Changes", "There are no changes to save.");
+            return;
+        }
+
+        // Count affected locales
+        var affectedLocales = new HashSet<string>();
+        foreach (var entry in modifiedEntries)
+        {
+            var changes = entry.GetChangedTranslations();
+            foreach (var locale in changes.Keys)
+            {
+                affectedLocales.Add(locale);
+            }
+        }
+
+        var confirm = await _dialogService.ShowConfirmationAsync(
+            "Save Changes",
+            $"Save {modifiedEntries.Count} modified translation(s) across {affectedLocales.Count} locale file(s)?\n\nBackups will be created automatically.",
+            "Save",
+            "Cancel");
+
+        if (!confirm)
+        {
+            return;
+        }
+
+        try
+        {
+            IsSaving = true;
+            SaveProgress = 0;
+            StatusMessage = "Preparing to save...";
+
+            // Group translations by locale
+            var localeTranslations = new Dictionary<string, Dictionary<string, string>>();
+
+            foreach (var entry in modifiedEntries)
+            {
+                var changedTranslations = entry.GetChangedTranslations();
+                
+                foreach (var (localeCode, translation) in changedTranslations)
+                {
+                    if (!localeTranslations.ContainsKey(localeCode))
+                    {
+                        localeTranslations[localeCode] = new Dictionary<string, string>();
+                    }
+
+                    localeTranslations[localeCode][entry.GlueString] = translation;
+                }
+            }
+
+            // Merge with existing translations to preserve non-modified entries
+            if (_localizationData != null)
+            {
+                foreach (var (localeCode, _) in localeTranslations.ToList())
+                {
+                    var existingData = _localizationData.GetLocaleData(localeCode);
+                    if (existingData != null)
+                    {
+                        // Add all existing translations that we haven't modified
+                        foreach (var (key, value) in existingData)
+                        {
+                            if (!localeTranslations[localeCode].ContainsKey(key))
+                            {
+                                localeTranslations[localeCode][key] = value;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Save with progress reporting
+            var progress = new Progress<SaveProgress>(p =>
+            {
+                MainThread.BeginInvokeOnMainThread(() =>
+                {
+                    SaveProgress = p.PercentComplete / 100.0;
+                    
+                    if (p.Error != null)
+                    {
+                        StatusMessage = $"Error saving {p.LocaleCode}: {p.Error}";
+                    }
+                    else if (p.IsComplete)
+                    {
+                        StatusMessage = $"Successfully saved all changes";
+                    }
+                    else
+                    {
+                        StatusMessage = $"Saving {p.LocaleCode}... ({p.ProcessedCount}/{p.TotalCount})";
+                    }
+                });
+            });
+
+            await _fileWriter.SaveMultipleLocaleFilesAsync(
+                _localizationDirectory,
+                localeTranslations,
+                createBackup: true,
+                progress: progress);
+
+            // Commit changes to mark them as saved
+            foreach (var entry in modifiedEntries)
+            {
+                entry.CommitChanges();
+            }
+
+            UpdateChangeTracking();
+            
+            await _dialogService.ShowAlertAsync(
+                "Save Successful",
+                $"Successfully saved {modifiedEntries.Count} translation(s) to {localeTranslations.Count} locale file(s).");
+            
+            StatusMessage = $"Saved {modifiedEntries.Count} translation(s) to {localeTranslations.Count} file(s)";
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[GridPage] Error saving changes: {ex.Message}");
+            Debug.WriteLine($"[GridPage] Stack trace: {ex.StackTrace}");
+            
+            await _dialogService.ShowAlertAsync(
+                "Save Failed",
+                $"An error occurred while saving:\n\n{ex.Message}");
+            
+            StatusMessage = $"Error saving: {ex.Message}";
+        }
+        finally
+        {
+            IsSaving = false;
+            SaveProgress = 0;
+        }
+    }
+
+    private bool CanSaveChanges() => HasUnsavedChanges && !IsSaving && !IsLoading;
+
+    [RelayCommand(CanExecute = nameof(CanDiscardChanges))]
+    private async Task DiscardChanges()
+    {
+        var modifiedEntries = GetModifiedEntries().ToList();
+        
+        var confirm = await _dialogService.ShowConfirmationAsync(
+            "Discard Changes",
+            $"Discard {modifiedEntries.Count} unsaved change(s)?\n\nThis action cannot be undone.",
+            "Discard",
+            "Cancel");
+
+        if (!confirm)
+        {
+            return;
+        }
+
+        foreach (var entry in modifiedEntries)
+        {
+            entry.ResetChanges();
+        }
+
+        UpdateChangeTracking();
+        StatusMessage = $"Discarded {modifiedEntries.Count} unsaved change(s)";
+    }
+
+    private bool CanDiscardChanges() => HasUnsavedChanges && !IsSaving && !IsLoading;
+
+    [RelayCommand]
+    private async Task Reload()
+    {
+        if (HasUnsavedChanges)
+        {
+            var confirm = await _dialogService.ShowConfirmationAsync(
+                "Unsaved Changes",
+                "You have unsaved changes. Reloading will discard them.\n\nContinue?",
+                "Reload",
+                "Cancel");
+
+            if (!confirm)
+            {
+                return;
+            }
+        }
+
+        await LoadDataAsync();
+    }
+
     [RelayCommand]
     private async Task ExportData()
     {
-        // TODO: Implement export functionality
-        await Task.CompletedTask;
+        await _dialogService.ShowAlertAsync("Export", "Export functionality coming soon!");
+    }
+
+    [RelayCommand]
+    private void TestEdit()
+    {
+        // Test command to verify change tracking
+        if (Entries.Count > 0)
+        {
+            var firstEntry = Entries[0];
+            Debug.WriteLine($"[GridPage] Test Edit - Before: enUS = '{firstEntry.EnUS}'");
+            firstEntry.EnUS = "TEST EDIT - " + DateTime.Now.ToString("HH:mm:ss");
+            Debug.WriteLine($"[GridPage] Test Edit - After: enUS = '{firstEntry.EnUS}'");
+            Debug.WriteLine($"[GridPage] Test Edit - HasChanges: {firstEntry.HasChanges()}");
+        }
+        else
+        {
+            Debug.WriteLine("[GridPage] Test Edit - No entries to edit");
+        }
+    }
+
+    /// <summary>
+    /// Get all entries with unsaved changes
+    /// </summary>
+    public IEnumerable<LocalizationEntryViewModel> GetModifiedEntries()
+    {
+        return Entries.Where(e => e.HasChanges());
+    }
+
+    /// <summary>
+    /// Handle page appearing - warn if trying to navigate away with unsaved changes
+    /// </summary>
+    public async Task<bool> OnNavigatingAwayAsync()
+    {
+        if (HasUnsavedChanges)
+        {
+            var confirm = await _dialogService.ShowConfirmationAsync(
+                "Unsaved Changes",
+                $"You have {ModifiedEntryCount} unsaved change(s).\n\nLeave without saving?",
+                "Leave",
+                "Stay");
+
+            return confirm;
+        }
+
+        return true;
     }
 }

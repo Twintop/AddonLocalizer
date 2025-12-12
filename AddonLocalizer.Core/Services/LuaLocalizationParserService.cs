@@ -129,24 +129,7 @@ public class LuaLocalizationParserService(IFileSystemService fileSystem) : ILuaL
                 if (assignmentIndex >= 0 && assignmentIndex < line.Length - 1)
                 {
                     var rightSide = line[(assignmentIndex + 1)..].Trim();
-                    string? value = null;
-                    
-                    if (rightSide.StartsWith('"'))
-                    {
-                        var endQuote = rightSide.IndexOf('"', 1);
-                        if (endQuote > 0)
-                        {
-                            value = rightSide[1..endQuote];
-                        }
-                    }
-                    else if (rightSide.StartsWith('\''))
-                    {
-                        var endQuote = rightSide.IndexOf('\'', 1);
-                        if (endQuote > 0)
-                        {
-                            value = rightSide[1..endQuote];
-                        }
-                    }
+                    var value = ExtractStringValue(rightSide);
                     
                     if (value != null)
                     {
@@ -303,49 +286,170 @@ public class LuaLocalizationParserService(IFileSystemService fileSystem) : ILuaL
         return result;
     }
 
-    private static string[] FilterExcludedPaths(string[] filePaths, string baseDirectory, string[]? excludeSubdirectories)
+    /// <summary>
+    /// Parses a locale-specific file to extract translations
+    /// </summary>
+    /// <param name="filePath">Path to locale file (e.g., Localization/deDE.lua)</param>
+    /// <returns>Dictionary of glue string -> translated value</returns>
+    public async Task<Dictionary<string, string>> ParseLocaleTranslationsAsync(string filePath)
     {
-        if (excludeSubdirectories == null || excludeSubdirectories.Length == 0)
+        if (!fileSystem.FileExists(filePath))
         {
-            return filePaths;
+            throw new FileNotFoundException($"File not found: {filePath}");
         }
 
-        return filePaths.Where(filePath =>
+        var translations = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var lines = await fileSystem.ReadAllLinesAsync(filePath);
+
+        foreach (var line in lines)
         {
-            var normalizedFilePath = filePath.Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar);
-            
-            foreach (var excludedSubdirectory in excludeSubdirectories)
+            var match = AssignmentPattern.Match(line);
+            if (match is { Success: true, Groups.Count: > 1 })
             {
-                var normalizedExclude = excludedSubdirectory.Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar);
-                var pathSegments = normalizedFilePath.Split(Path.DirectorySeparatorChar);
-                var excludeSegments = normalizedExclude.Split(Path.DirectorySeparatorChar);
+                var key = match.Groups[1].Value;
+                var assignmentIndex = line.IndexOf('=');
                 
-                for (int i = 0; i <= pathSegments.Length - excludeSegments.Length; i++)
+                if (assignmentIndex >= 0 && assignmentIndex < line.Length - 1)
                 {
-                    bool matches = true;
-                    for (int j = 0; j < excludeSegments.Length; j++)
-                    {
-                        if (!pathSegments[i + j].Equals(excludeSegments[j], StringComparison.OrdinalIgnoreCase))
-                        {
-                            matches = false;
-                            break;
-                        }
-                    }
+                    var rightSide = line[(assignmentIndex + 1)..].Trim();
+                    var value = ExtractStringValue(rightSide);
                     
-                    if (matches)
+                    if (value != null)
                     {
-                        return false;
+                        translations[key] = value;
                     }
                 }
             }
-            
-            return true;
-        }).ToArray();
+        }
+
+        return translations;
     }
 
-    private string NormalizePath(string path)
+    /// <summary>
+    /// Parses entire Localization directory, loading all locale files
+    /// </summary>
+    /// <param name="localizationDir">Path to Localization directory</param>
+    /// <param name="excludePatterns">Patterns to exclude (e.g., ["*GT.lua"])</param>
+    /// <returns>Complete localization dataset</returns>
+    public async Task<LocalizationDataSet> ParseLocalizationDirectoryAsync(
+        string localizationDir, 
+        string[]? excludePatterns = null)
     {
-        return Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        if (!fileSystem.DirectoryExists(localizationDir))
+        {
+            throw new DirectoryNotFoundException($"Directory not found: {localizationDir}");
+        }
+
+        var dataSet = new LocalizationDataSet();
+        var luaFiles = fileSystem.GetFiles(localizationDir, "*.lua", SearchOption.TopDirectoryOnly);
+        
+        // Exclude GT (Google Translate) files by default
+        excludePatterns ??= ["GT.lua"];
+        var filteredFiles = luaFiles.Where(f => 
+            !excludePatterns.Any(pattern => 
+                Path.GetFileName(f).EndsWith(pattern.TrimStart('*'), 
+                    StringComparison.OrdinalIgnoreCase))
+        ).ToArray();
+
+        foreach (var filePath in filteredFiles)
+        {
+            var fileName = Path.GetFileNameWithoutExtension(filePath);
+            
+            // Check if this is a valid locale code
+            if (LocaleDefinitions.IsValidLocale(fileName))
+            {
+                var translations = await ParseLocaleTranslationsAsync(filePath);
+                dataSet.AddLocale(fileName, translations);
+            }
+        }
+
+        return dataSet;
+    }
+
+    /// <summary>
+    /// Synchronous version of ParseLocaleTranslationsAsync
+    /// </summary>
+    public Dictionary<string, string> ParseLocaleTranslations(string filePath)
+    {
+        if (!fileSystem.FileExists(filePath))
+        {
+            throw new FileNotFoundException($"File not found: {filePath}");
+        }
+
+        var translations = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var lines = fileSystem.ReadAllLines(filePath);
+
+        foreach (var line in lines)
+        {
+            var match = AssignmentPattern.Match(line);
+            if (match is { Success: true, Groups.Count: > 1 })
+            {
+                var key = match.Groups[1].Value;
+                var assignmentIndex = line.IndexOf('=');
+                
+                if (assignmentIndex >= 0 && assignmentIndex < line.Length - 1)
+                {
+                    var rightSide = line[(assignmentIndex + 1)..].Trim();
+                    var value = ExtractStringValue(rightSide);
+                    
+                    if (value != null)
+                    {
+                        translations[key] = value;
+                    }
+                }
+            }
+        }
+
+        return translations;
+    }
+
+    private static string? ExtractStringValue(string rightSide)
+    {
+        // Remove trailing comments and whitespace
+        var commentIndex = rightSide.IndexOf("--");
+        if (commentIndex >= 0)
+        {
+            rightSide = rightSide[..commentIndex].Trim();
+        }
+        
+        // Handle double quotes
+        if (rightSide.StartsWith('"'))
+        {
+            var endQuote = FindClosingQuote(rightSide, '"', 1);
+            if (endQuote > 0)
+            {
+                return rightSide[1..endQuote];
+            }
+        }
+        
+        // Handle single quotes
+        if (rightSide.StartsWith('\''))
+        {
+            var endQuote = FindClosingQuote(rightSide, '\'', 1);
+            if (endQuote > 0)
+            {
+                return rightSide[1..endQuote];
+            }
+        }
+        
+        return null;
+    }
+
+    private static int FindClosingQuote(string text, char quoteChar, int startIndex)
+    {
+        for (int i = startIndex; i < text.Length; i++)
+        {
+            if (text[i] == '\\' && i + 1 < text.Length)
+            {
+                i++;
+                continue;
+            }
+            if (text[i] == quoteChar)
+            {
+                return i;
+            }
+        }
+        return -1;
     }
 
     private static void ProcessLines(string[] lines, string filePath, ParseResult result)
@@ -491,5 +595,50 @@ public class LuaLocalizationParserService(IFileSystemService fileSystem) : ILuaL
                 }
             }
         }
+    }
+
+    private static string[] FilterExcludedPaths(string[] filePaths, string baseDirectory, string[]? excludeSubdirectories)
+    {
+        if (excludeSubdirectories == null || excludeSubdirectories.Length == 0)
+        {
+            return filePaths;
+        }
+
+        return filePaths.Where(filePath =>
+        {
+            var normalizedFilePath = filePath.Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar);
+            
+            foreach (var excludedSubdirectory in excludeSubdirectories)
+            {
+                var normalizedExclude = excludedSubdirectory.Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar);
+                var pathSegments = normalizedFilePath.Split(Path.DirectorySeparatorChar);
+                var excludeSegments = normalizedExclude.Split(Path.DirectorySeparatorChar);
+                
+                for (int i = 0; i <= pathSegments.Length - excludeSegments.Length; i++)
+                {
+                    bool matches = true;
+                    for (int j = 0; j < excludeSegments.Length; j++)
+                    {
+                        if (!pathSegments[i + j].Equals(excludeSegments[j], StringComparison.OrdinalIgnoreCase))
+                        {
+                            matches = false;
+                            break;
+                        }
+                    }
+                    
+                    if (matches)
+                    {
+                        return false;
+                    }
+                }
+            }
+            
+            return true;
+        }).ToArray();
+    }
+
+    private string NormalizePath(string path)
+    {
+        return Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
     }
 }

@@ -19,6 +19,9 @@ public static class ServiceCollectionExtensions
         // Register Lua localization parser service
         services.AddTransient<ILuaLocalizationParserService, LuaLocalizationParserService>();
 
+        // Register localization file writer service
+        services.AddTransient<ILocalizationFileWriterService, LocalizationFileWriterService>();
+
         return services;
     }
 }

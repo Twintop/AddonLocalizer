@@ -15,7 +15,10 @@
             <!-- Converters -->
             <converters:IsNotNullConverter x:Key="IsNotNullConverter" />
             <converters:IsGreaterThanZeroConverter x:Key="IsGreaterThanZeroConverter" />
+            <converters:GreaterThanZeroConverter x:Key="GreaterThanZeroConverter" />
             <converters:InverseBoolConverter x:Key="InverseBoolConverter" />
+            <converters:BoolToStringConverter x:Key="BoolToStringConverter" />
+            <converters:BoolToColorConverter x:Key="BoolToColorConverter" />
         </ResourceDictionary>
     </Application.Resources>
 </Application>
