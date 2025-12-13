@@ -9,7 +9,7 @@
              Title="Localizations"
              BackgroundColor="{AppThemeBinding Light={StaticResource PageBackgroundLight}, Dark={StaticResource PageBackgroundDark}}">
 
-    <Grid RowDefinitions="Auto,Auto,Auto,*,Auto">
+    <Grid RowDefinitions="Auto,Auto,Auto,Auto,*,Auto">
 
         <!-- Search Bar -->
         <Border Grid.Row="0" 
@@ -140,8 +140,125 @@
             </Grid>
         </Border>
 
+        <!-- Auto-Translate Bar -->
+        <Border Grid.Row="3"
+                Stroke="#2196F3"
+                Background="{AppThemeBinding Light=#E3F2FD, Dark=#1A237E}"
+                Padding="15,10">
+            
+            <Grid RowDefinitions="Auto,Auto,Auto" RowSpacing="8">
+                <!-- Header Row -->
+                <HorizontalStackLayout Grid.Row="0" Spacing="15">
+                    <Label Text="🌐"
+                           FontSize="20"
+                           VerticalOptions="Center"/>
+                    <Label Text="Google Translate - Auto-translate missing entries to GT files"
+                           FontSize="14"
+                           FontAttributes="Bold"
+                           VerticalOptions="Center"
+                           TextColor="{AppThemeBinding Light=#1565C0, Dark=#90CAF9}"/>
+                    <Label Text="{Binding TranslationStatus}"
+                           FontSize="12"
+                           VerticalOptions="Center"
+                           IsVisible="{Binding IsTranslating}"
+                           TextColor="{AppThemeBinding Light=#1565C0, Dark=#90CAF9}"/>
+                    <ActivityIndicator IsRunning="{Binding IsTranslating}"
+                                      IsVisible="{Binding IsTranslating}"
+                                      Color="#2196F3"
+                                      WidthRequest="24"
+                                      HeightRequest="24"
+                                      VerticalOptions="Center"/>
+                </HorizontalStackLayout>
+
+                <!-- Locale Buttons Row -->
+                <HorizontalStackLayout Grid.Row="1" Spacing="8">
+                    <Button Text="🌐 All Locales"
+                            Command="{Binding AutoTranslateCommand}"
+                            BackgroundColor="#2196F3"
+                            TextColor="White"
+                            Padding="12,6"
+                            FontSize="12"
+                            FontAttributes="Bold"/>
+                    <BoxView WidthRequest="1" 
+                             BackgroundColor="{AppThemeBinding Light=#CCCCCC, Dark=#555555}"
+                             VerticalOptions="Fill"
+                             Margin="4,0"/>
+                    <Button Text="de-GT"
+                            Command="{Binding TranslateLocaleCommand}"
+                            CommandParameter="de"
+                            BackgroundColor="#4CAF50"
+                            TextColor="White"
+                            Padding="12,6"
+                            FontSize="12"/>
+                    <Button Text="es-GT"
+                            Command="{Binding TranslateLocaleCommand}"
+                            CommandParameter="es"
+                            BackgroundColor="#FF9800"
+                            TextColor="White"
+                            Padding="12,6"
+                            FontSize="12"/>
+                    <Button Text="fr-GT"
+                            Command="{Binding TranslateLocaleCommand}"
+                            CommandParameter="fr"
+                            BackgroundColor="#2196F3"
+                            TextColor="White"
+                            Padding="12,6"
+                            FontSize="12"/>
+                    <Button Text="it-GT"
+                            Command="{Binding TranslateLocaleCommand}"
+                            CommandParameter="it"
+                            BackgroundColor="#9C27B0"
+                            TextColor="White"
+                            Padding="12,6"
+                            FontSize="12"/>
+                    <Button Text="ko-GT"
+                            Command="{Binding TranslateLocaleCommand}"
+                            CommandParameter="ko"
+                            BackgroundColor="#E91E63"
+                            TextColor="White"
+                            Padding="12,6"
+                            FontSize="12"/>
+                    <Button Text="pt-GT"
+                            Command="{Binding TranslateLocaleCommand}"
+                            CommandParameter="pt"
+                            BackgroundColor="#00BCD4"
+                            TextColor="White"
+                            Padding="12,6"
+                            FontSize="12"/>
+                    <Button Text="ru-GT"
+                            Command="{Binding TranslateLocaleCommand}"
+                            CommandParameter="ru"
+                            BackgroundColor="#795548"
+                            TextColor="White"
+                            Padding="12,6"
+                            FontSize="12"/>
+                    <Button Text="zhCN-GT"
+                            Command="{Binding TranslateLocaleCommand}"
+                            CommandParameter="zh"
+                            BackgroundColor="#F44336"
+                            TextColor="White"
+                            Padding="12,6"
+                            FontSize="12"/>
+                    <Button Text="zhTW-GT"
+                            Command="{Binding TranslateLocaleCommand}"
+                            CommandParameter="zh-TW"
+                            BackgroundColor="#FF5722"
+                            TextColor="White"
+                            Padding="12,6"
+                            FontSize="12"/>
+                </HorizontalStackLayout>
+                
+                <!-- Progress Bar -->
+                <ProgressBar Grid.Row="2"
+                            Progress="{Binding TranslationProgress}"
+                            IsVisible="{Binding IsTranslating}"
+                            ProgressColor="#2196F3"
+                            HeightRequest="6"/>
+            </Grid>
+        </Border>
+
         <!-- Syncfusion DataGrid -->
-        <Grid Grid.Row="3" x:Name="gridContainer">
+        <Grid Grid.Row="4" x:Name="gridContainer">
             
             <!-- Loading Indicator -->
             <ActivityIndicator IsRunning="{Binding IsLoading}"
@@ -305,6 +422,62 @@
                                                   ColumnWidthMode="Fill"
                                                   MinimumWidth="200"
                                                   AllowEditing="True"/>
+
+                    <!-- GT Status Columns - non-editable, show checkmark/X for translation status -->
+                    <syncfusion:DataGridTextColumn HeaderText="de-GT" 
+                                                  MappingName="DeGTIcon" 
+                                                  ColumnWidthMode="Auto"
+                                                  MinimumWidth="60"
+                                                  AllowEditing="False"
+                                                  AllowSorting="True"/>
+                    <syncfusion:DataGridTextColumn HeaderText="es-GT" 
+                                                  MappingName="EsGTIcon" 
+                                                  ColumnWidthMode="Auto"
+                                                  MinimumWidth="60"
+                                                  AllowEditing="False"
+                                                  AllowSorting="True"/>
+                    <syncfusion:DataGridTextColumn HeaderText="fr-GT" 
+                                                  MappingName="FrGTIcon" 
+                                                  ColumnWidthMode="Auto"
+                                                  MinimumWidth="60"
+                                                  AllowEditing="False"
+                                                  AllowSorting="True"/>
+                    <syncfusion:DataGridTextColumn HeaderText="it-GT" 
+                                                  MappingName="ItGTIcon" 
+                                                  ColumnWidthMode="Auto"
+                                                  MinimumWidth="60"
+                                                  AllowEditing="False"
+                                                  AllowSorting="True"/>
+                    <syncfusion:DataGridTextColumn HeaderText="ko-GT" 
+                                                  MappingName="KoGTIcon" 
+                                                  ColumnWidthMode="Auto"
+                                                  MinimumWidth="60"
+                                                  AllowEditing="False"
+                                                  AllowSorting="True"/>
+                    <syncfusion:DataGridTextColumn HeaderText="pt-GT" 
+                                                  MappingName="PtGTIcon" 
+                                                  ColumnWidthMode="Auto"
+                                                  MinimumWidth="60"
+                                                  AllowEditing="False"
+                                                  AllowSorting="True"/>
+                    <syncfusion:DataGridTextColumn HeaderText="ru-GT" 
+                                                  MappingName="RuGTIcon" 
+                                                  ColumnWidthMode="Auto"
+                                                  MinimumWidth="60"
+                                                  AllowEditing="False"
+                                                  AllowSorting="True"/>
+                    <syncfusion:DataGridTextColumn HeaderText="zhCN-GT" 
+                                                  MappingName="ZhCNGTIcon" 
+                                                  ColumnWidthMode="Auto"
+                                                  MinimumWidth="70"
+                                                  AllowEditing="False"
+                                                  AllowSorting="True"/>
+                    <syncfusion:DataGridTextColumn HeaderText="zhTW-GT" 
+                                                  MappingName="ZhTWGTIcon" 
+                                                  ColumnWidthMode="Auto"
+                                                  MinimumWidth="70"
+                                                  AllowEditing="False"
+                                                  AllowSorting="True"/>
                 </syncfusion:SfDataGrid.Columns>
                 
             </syncfusion:SfDataGrid>
@@ -312,7 +485,7 @@
         </Grid>
 
         <!-- Status Bar -->
-        <Border Grid.Row="4"
+        <Border Grid.Row="5"
                 Stroke="{AppThemeBinding Light={StaticResource BorderColorLight}, Dark={StaticResource BorderColorDark}}"
                 Background="{AppThemeBinding Light={StaticResource SurfaceColorLight}, Dark={StaticResource SurfaceColorDark}}"
                 Padding="15,8">

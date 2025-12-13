@@ -88,11 +88,107 @@ public static class LocaleDefinitions
         new("zhTW", "Chinese (Traditional)", 14)
     ];
 
+    /// <summary>
+    /// Maps WoW locales to their base language code and Google Translate language code
+    /// </summary>
+    public static readonly Dictionary<string, (string BaseLocale, string GoogleLanguageCode)> LocaleToBaseMapping = new(StringComparer.OrdinalIgnoreCase)
+    {
+        // English locales - excluded from GT
+        { "enUS", ("en", "en") },
+        { "enGB", ("en", "en") },
+        { "enTW", ("en", "en") },
+        { "enCN", ("en", "en") },
+        
+        // German
+        { "deDE", ("de", "de") },
+        
+        // Spanish
+        { "esES", ("es", "es") },
+        { "esMX", ("es", "es") },
+        
+        // French
+        { "frFR", ("fr", "fr") },
+        
+        // Italian
+        { "itIT", ("it", "it") },
+        
+        // Korean
+        { "koKR", ("ko", "ko") },
+        
+        // Portuguese
+        { "ptBR", ("pt", "pt") },
+        { "ptPT", ("pt", "pt") },
+        
+        // Russian
+        { "ruRU", ("ru", "ru") },
+        
+        // Chinese
+        { "zhCN", ("zh", "zh-CN") },
+        { "zhTW", ("zh-TW", "zh-TW") }
+    };
+
     public static bool IsValidLocale(string localeCode) =>
         SupportedLocales.Any(l => l.Code.Equals(localeCode, StringComparison.OrdinalIgnoreCase));
 
     public static LocaleInfo? GetLocale(string localeCode) =>
         SupportedLocales.FirstOrDefault(l => l.Code.Equals(localeCode, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// Gets the GT file suffix for a locale (e.g., "de-GT" for deDE)
+    /// </summary>
+    public static string GetGTFileSuffix(string localeCode)
+    {
+        if (LocaleToBaseMapping.TryGetValue(localeCode, out var mapping))
+        {
+            return $"{mapping.BaseLocale}-GT";
+        }
+        return string.Empty;
+    }
+
+    /// <summary>
+    /// Gets all unique base locales that support GT (excludes English)
+    /// </summary>
+    public static IEnumerable<string> GetGTBaseLocales() =>
+        LocaleToBaseMapping
+            .Where(kvp => !kvp.Key.StartsWith("en", StringComparison.OrdinalIgnoreCase))
+            .Select(kvp => kvp.Value.BaseLocale)
+            .Distinct();
+
+    /// <summary>
+    /// Gets the Google Translate language code for a base locale
+    /// </summary>
+    public static string? GetGoogleLanguageCode(string baseLocale)
+    {
+        var entry = LocaleToBaseMapping.Values.FirstOrDefault(v => v.BaseLocale == baseLocale);
+        return entry.GoogleLanguageCode;
+    }
+
+    /// <summary>
+    /// Gets all WoW locales that share a base locale
+    /// </summary>
+    public static IEnumerable<string> GetLocalesForBase(string baseLocale) =>
+        LocaleToBaseMapping
+            .Where(kvp => kvp.Value.BaseLocale == baseLocale)
+            .Select(kvp => kvp.Key);
+
+    /// <summary>
+    /// Checks if a locale is an English locale (excluded from GT)
+    /// </summary>
+    public static bool IsEnglishLocale(string localeCode) =>
+        localeCode.StartsWith("en", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Gets the GT filename for a base locale.
+    /// Chinese locales use WoW locale codes (zhCN-GT.lua, zhTW-GT.lua).
+    /// Other locales use the base locale (es-GT.lua, pt-GT.lua, etc.).
+    /// </summary>
+    public static string GetGTFileName(string baseLocale) =>
+        baseLocale switch
+        {
+            "zh" => "zhCN-GT.lua",
+            "zh-TW" => "zhTW-GT.lua",
+            _ => $"{baseLocale}-GT.lua"
+        };
 }
 
 /// <summary>
@@ -102,6 +198,9 @@ public class LocalizationDataSet
 {
     // Locale code -> (GlueString -> Translation)
     private readonly Dictionary<string, Dictionary<string, string>> _translations = new(StringComparer.OrdinalIgnoreCase);
+
+    // GT translations: BaseLocale (e.g., "de") -> (GlueString -> Translation)
+    private readonly Dictionary<string, Dictionary<string, string>> _gtTranslations = new(StringComparer.OrdinalIgnoreCase);
 
     // All unique glue strings across all locales
     public HashSet<string> AllGlueStrings { get; } = new(StringComparer.OrdinalIgnoreCase);
@@ -120,6 +219,14 @@ public class LocalizationDataSet
     }
 
     /// <summary>
+    /// Add GT translations for a base locale
+    /// </summary>
+    public void AddGTLocale(string baseLocale, Dictionary<string, string> translations)
+    {
+        _gtTranslations[baseLocale] = translations;
+    }
+
+    /// <summary>
     /// Get translation for a specific glue string and locale
     /// </summary>
     public string? GetTranslation(string glueString, string localeCode)
@@ -133,6 +240,28 @@ public class LocalizationDataSet
     }
 
     /// <summary>
+    /// Get GT translation for a glue string in a base locale
+    /// </summary>
+    public string? GetGTTranslation(string glueString, string baseLocale)
+    {
+        if (_gtTranslations.TryGetValue(baseLocale, out var localeData))
+        {
+            localeData.TryGetValue(glueString, out var translation);
+            return translation;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Check if GT translation exists for a glue string in a base locale
+    /// </summary>
+    public bool HasGTTranslation(string glueString, string baseLocale)
+    {
+        return _gtTranslations.TryGetValue(baseLocale, out var localeData) 
+            && localeData.ContainsKey(glueString);
+    }
+
+    /// <summary>
     /// Get all translations for a specific locale
     /// </summary>
     public Dictionary<string, string>? GetLocaleData(string localeCode)
@@ -142,9 +271,23 @@ public class LocalizationDataSet
     }
 
     /// <summary>
+    /// Get all GT translations for a base locale
+    /// </summary>
+    public Dictionary<string, string>? GetGTLocaleData(string baseLocale)
+    {
+        _gtTranslations.TryGetValue(baseLocale, out var data);
+        return data;
+    }
+
+    /// <summary>
     /// Get list of all loaded locale codes
     /// </summary>
     public IEnumerable<string> LoadedLocales => _translations.Keys;
+
+    /// <summary>
+    /// Get list of loaded GT base locales
+    /// </summary>
+    public IEnumerable<string> LoadedGTLocales => _gtTranslations.Keys;
 
     /// <summary>
     /// Get count of translations for a specific locale
@@ -152,6 +295,14 @@ public class LocalizationDataSet
     public int GetTranslationCount(string localeCode)
     {
         return _translations.TryGetValue(localeCode, out var data) ? data.Count : 0;
+    }
+
+    /// <summary>
+    /// Get count of GT translations for a base locale
+    /// </summary>
+    public int GetGTTranslationCount(string baseLocale)
+    {
+        return _gtTranslations.TryGetValue(baseLocale, out var data) ? data.Count : 0;
     }
 
     /// <summary>
@@ -167,4 +318,9 @@ public class LocalizationDataSet
     /// Check if a locale has been loaded
     /// </summary>
     public bool HasLocale(string localeCode) => _translations.ContainsKey(localeCode);
+
+    /// <summary>
+    /// Check if a GT locale has been loaded
+    /// </summary>
+    public bool HasGTLocale(string baseLocale) => _gtTranslations.ContainsKey(baseLocale);
 }

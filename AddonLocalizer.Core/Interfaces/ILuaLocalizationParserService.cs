@@ -62,4 +62,12 @@ public interface ILuaLocalizationParserService
     /// <param name="excludePatterns">Patterns to exclude (default: ["GT.lua"])</param>
     /// <returns>Complete localization dataset with all locales</returns>
     Task<LocalizationDataSet> ParseLocalizationDirectoryAsync(string localizationDir, string[]? excludePatterns = null);
+
+    /// <summary>
+    /// Loads GT (Google Translate) files from Localization directory into an existing dataset.
+    /// Looks for files named {baseLocale}-GT.lua (e.g., de-GT.lua, fr-GT.lua).
+    /// </summary>
+    /// <param name="localizationDir">Path to Localization directory</param>
+    /// <param name="dataSet">The dataset to load GT translations into</param>
+    Task LoadGTFilesAsync(string localizationDir, LocalizationDataSet dataSet);
 }

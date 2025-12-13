@@ -437,7 +437,7 @@ public class LuaLocalizationParserService(IFileSystemService fileSystem) : ILuaL
 
     private static int FindClosingQuote(string text, char quoteChar, int startIndex)
     {
-        for (int i = startIndex; i < text.Length; i++)
+        for (var i = startIndex; i < text.Length; i++)
         {
             if (text[i] == '\\' && i + 1 < text.Length)
             {
@@ -546,7 +546,7 @@ public class LuaLocalizationParserService(IFileSystemService fileSystem) : ILuaL
             var info = result.GlueStrings[glueString];
             
             // Check if this file is already in Locations
-            bool fileAlreadyTracked = info.Locations.Any(l => 
+            var fileAlreadyTracked = info.Locations.Any(l => 
                 l.FilePath.Equals(filePath, StringComparison.OrdinalIgnoreCase));
             
             // If not tracked yet and we have room, add a file-only reference
@@ -614,10 +614,10 @@ public class LuaLocalizationParserService(IFileSystemService fileSystem) : ILuaL
                 var pathSegments = normalizedFilePath.Split(Path.DirectorySeparatorChar);
                 var excludeSegments = normalizedExclude.Split(Path.DirectorySeparatorChar);
                 
-                for (int i = 0; i <= pathSegments.Length - excludeSegments.Length; i++)
+                for (var i = 0; i <= pathSegments.Length - excludeSegments.Length; i++)
                 {
-                    bool matches = true;
-                    for (int j = 0; j < excludeSegments.Length; j++)
+                    var matches = true;
+                    for (var j = 0; j < excludeSegments.Length; j++)
                     {
                         if (!pathSegments[i + j].Equals(excludeSegments[j], StringComparison.OrdinalIgnoreCase))
                         {
@@ -635,6 +635,38 @@ public class LuaLocalizationParserService(IFileSystemService fileSystem) : ILuaL
             
             return true;
         }).ToArray();
+    }
+
+    /// <summary>
+    /// Loads GT (Google Translate) files from Localization directory into an existing dataset.
+    /// Looks for files named based on locale (e.g., de-GT.lua, zhCN-GT.lua).
+    /// </summary>
+    public async Task LoadGTFilesAsync(string localizationDir, LocalizationDataSet dataSet)
+    {
+        if (!fileSystem.DirectoryExists(localizationDir))
+        {
+            return;
+        }
+
+        foreach (var baseLocale in LocaleDefinitions.GetGTBaseLocales())
+        {
+            var gtFileName = LocaleDefinitions.GetGTFileName(baseLocale);
+            var gtFilePath = Path.Combine(localizationDir, gtFileName);
+            
+            if (fileSystem.FileExists(gtFilePath))
+            {
+                try
+                {
+                    var translations = await ParseLocaleTranslationsAsync(gtFilePath);
+                    dataSet.AddGTLocale(baseLocale, translations);
+                    System.Diagnostics.Debug.WriteLine($"[Parser] Loaded GT file: {gtFileName} with {translations.Count} translations");
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[Parser] Error loading GT file {gtFileName}: {ex.Message}");
+                }
+            }
+        }
     }
 
     private string NormalizePath(string path)

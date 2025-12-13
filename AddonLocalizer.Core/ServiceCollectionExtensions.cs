@@ -22,6 +22,9 @@ public static class ServiceCollectionExtensions
         // Register localization file writer service
         services.AddTransient<ILocalizationFileWriterService, LocalizationFileWriterService>();
 
+        // Register Google Translate service (singleton to maintain API key configuration)
+        services.AddSingleton<IGoogleTranslateService, GoogleTranslateService>();
+
         return services;
     }
 }

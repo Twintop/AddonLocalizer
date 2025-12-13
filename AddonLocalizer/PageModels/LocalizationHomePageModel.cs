@@ -227,6 +227,16 @@ public partial class LocalizationHomePageModel : ObservableObject
                     if (localizationData != null)
                     {
                         LoadedLocales = localizationData.LoadedLocales.Count();
+
+                        // Load GT (Google Translate) files
+                        StatusMessage = "Loading Google Translate files...";
+                        await _parserService.LoadGTFilesAsync(localizationDir, localizationData);
+                        
+                        var gtLocaleCount = localizationData.LoadedGTLocales.Count();
+                        if (gtLocaleCount > 0)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[Home] Loaded {gtLocaleCount} GT locales");
+                        }
                         
                         // Parse format parameters from enUS if available
                         var enUsFile = Path.Combine(localizationDir, "enUS.lua");

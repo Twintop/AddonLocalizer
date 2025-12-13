@@ -69,6 +69,34 @@ public partial class LocalizationEntryViewModel : ObservableObject
     [ObservableProperty]
     private string _zhTW = string.Empty;
 
+    // GT (Google Translate) status properties - indicates if translation exists in GT file
+    [ObservableProperty]
+    private bool _hasDeGT;
+
+    [ObservableProperty]
+    private bool _hasEsGT;
+
+    [ObservableProperty]
+    private bool _hasFrGT;
+
+    [ObservableProperty]
+    private bool _hasItGT;
+
+    [ObservableProperty]
+    private bool _hasKoGT;
+
+    [ObservableProperty]
+    private bool _hasPtGT;
+
+    [ObservableProperty]
+    private bool _hasRuGT;
+
+    [ObservableProperty]
+    private bool _hasZhCNGT;
+
+    [ObservableProperty]
+    private bool _hasZhTWGT;
+
     // Store reference to original data instead of copying everything
     private readonly GlueStringInfo _sourceInfo;
     
@@ -91,6 +119,7 @@ public partial class LocalizationEntryViewModel : ObservableObject
         if (localizationData != null)
         {
             LoadTranslations(localizationData);
+            LoadGTStatus(localizationData);
         }
     }
 
@@ -114,6 +143,22 @@ public partial class LocalizationEntryViewModel : ObservableObject
         RuRU = GetAndStoreTranslation(dataSet, "ruRU");
         ZhCN = GetAndStoreTranslation(dataSet, "zhCN");
         ZhTW = GetAndStoreTranslation(dataSet, "zhTW");
+    }
+
+    /// <summary>
+    /// Load GT status from localization dataset
+    /// </summary>
+    private void LoadGTStatus(LocalizationDataSet dataSet)
+    {
+        HasDeGT = dataSet.HasGTTranslation(_glueString, "de");
+        HasEsGT = dataSet.HasGTTranslation(_glueString, "es");
+        HasFrGT = dataSet.HasGTTranslation(_glueString, "fr");
+        HasItGT = dataSet.HasGTTranslation(_glueString, "it");
+        HasKoGT = dataSet.HasGTTranslation(_glueString, "ko");
+        HasPtGT = dataSet.HasGTTranslation(_glueString, "pt");
+        HasRuGT = dataSet.HasGTTranslation(_glueString, "ru");
+        HasZhCNGT = dataSet.HasGTTranslation(_glueString, "zh");
+        HasZhTWGT = dataSet.HasGTTranslation(_glueString, "zh-TW");
     }
 
     /// <summary>
@@ -342,4 +387,16 @@ public partial class LocalizationEntryViewModel : ObservableObject
             return $"{actualParams.Count} - {string.Join(", ", paramTypes)}";
         }
     }
+
+    // GT status icon properties - show green checkmark or red X
+    // Using Unicode escape sequences for reliability across fonts
+    public string DeGTIcon => HasDeGT ? "\u2714" : "\u2718";
+    public string EsGTIcon => HasEsGT ? "\u2714" : "\u2718";
+    public string FrGTIcon => HasFrGT ? "\u2714" : "\u2718";
+    public string ItGTIcon => HasItGT ? "\u2714" : "\u2718";
+    public string KoGTIcon => HasKoGT ? "\u2714" : "\u2718";
+    public string PtGTIcon => HasPtGT ? "\u2714" : "\u2718";
+    public string RuGTIcon => HasRuGT ? "\u2714" : "\u2718";
+    public string ZhCNGTIcon => HasZhCNGT ? "\u2714" : "\u2718";
+    public string ZhTWGTIcon => HasZhTWGT ? "\u2714" : "\u2718";
 }
