@@ -404,6 +404,147 @@ public class LuaLocalizationParserServiceTests
         Assert.Equal(2, result["ActualFormat"].Count);
     }
 
+    #region Duplicate Detection Tests
+
+    [Fact]
+    public async Task ParseLocaleTranslationsWithDuplicatesAsync_DetectsDuplicateEntries()
+    {
+        var content = new[]
+        {
+            @"L[""Key1""] = ""First Value""",
+            @"L[""Key2""] = ""Unique Value""",
+            @"L[""Key1""] = ""Second Value""",
+            @"L[""Key1""] = ""Third Value"""
+        };
+        SetupFileWithLines("enUS.lua", content);
+
+        var (translations, duplicates) = await _parser.ParseLocaleTranslationsWithDuplicatesAsync("enUS.lua");
+
+        // Should have 2 unique keys
+        Assert.Equal(2, translations.Count);
+        
+        // Key1 should have the last value
+        Assert.Equal("Third Value", translations["Key1"]);
+        Assert.Equal("Unique Value", translations["Key2"]);
+        
+        // Should detect 1 duplicate (Key1)
+        Assert.Single(duplicates);
+        Assert.Equal("Key1", duplicates[0].Key);
+        Assert.Equal(3, duplicates[0].OccurrenceCount);
+        Assert.Equal("Third Value", duplicates[0].FinalValue);
+        
+        // Should track all values
+        Assert.Contains("First Value", duplicates[0].Values);
+        Assert.Contains("Second Value", duplicates[0].Values);
+        Assert.Contains("Third Value", duplicates[0].Values);
+    }
+
+    [Fact]
+    public async Task ParseLocaleTranslationsWithDuplicatesAsync_NoDuplicates_ReturnsEmptyList()
+    {
+        var content = new[]
+        {
+            @"L[""Key1""] = ""Value1""",
+            @"L[""Key2""] = ""Value2""",
+            @"L[""Key3""] = ""Value3"""
+        };
+        SetupFileWithLines("enUS.lua", content);
+
+        var (translations, duplicates) = await _parser.ParseLocaleTranslationsWithDuplicatesAsync("enUS.lua");
+
+        Assert.Equal(3, translations.Count);
+        Assert.Empty(duplicates);
+    }
+
+    [Fact]
+    public async Task ParseLocaleTranslationsWithDuplicatesAsync_MultipleDuplicateKeys()
+    {
+        var content = new[]
+        {
+            @"L[""DupA""] = ""A1""",
+            @"L[""DupB""] = ""B1""",
+            @"L[""DupA""] = ""A2""",
+            @"L[""UniqueKey""] = ""Unique""",
+            @"L[""DupB""] = ""B2""",
+            @"L[""DupA""] = ""A3"""
+        };
+        SetupFileWithLines("enUS.lua", content);
+
+        var (translations, duplicates) = await _parser.ParseLocaleTranslationsWithDuplicatesAsync("enUS.lua");
+
+        // Should have 3 unique keys
+        Assert.Equal(3, translations.Count);
+        Assert.Equal("A3", translations["DupA"]);
+        Assert.Equal("B2", translations["DupB"]);
+        Assert.Equal("Unique", translations["UniqueKey"]);
+        
+        // Should detect 2 duplicates
+        Assert.Equal(2, duplicates.Count);
+        
+        var dupA = duplicates.First(d => d.Key == "DupA");
+        var dupB = duplicates.First(d => d.Key == "DupB");
+        
+        Assert.Equal(3, dupA.OccurrenceCount);
+        Assert.Equal(2, dupB.OccurrenceCount);
+    }
+
+    [Fact]
+    public void ParseLocaleTranslationsWithDuplicates_Sync_DetectsDuplicates()
+    {
+        var content = new[]
+        {
+            @"L[""Key1""] = ""First""",
+            @"L[""Key1""] = ""Second"""
+        };
+        SetupFileWithLines("enUS.lua", content);
+
+        var (translations, duplicates) = _parser.ParseLocaleTranslationsWithDuplicates("enUS.lua");
+
+        Assert.Single(translations);
+        Assert.Equal("Second", translations["Key1"]);
+        Assert.Single(duplicates);
+        Assert.Equal(2, duplicates[0].OccurrenceCount);
+    }
+
+    [Fact]
+    public async Task ParseLocalizationDirectoryAsync_TracksDuplicatesPerLocale()
+    {
+        var localizationDir = "/addon/Localization";
+        var enUSContent = new[]
+        {
+            @"L[""Key1""] = ""Value1""",
+            @"L[""Key1""] = ""Value2"""  // Duplicate in enUS
+        };
+        var deDEContent = new[]
+        {
+            @"L[""Key1""] = ""Wert1""",
+            @"L[""Key2""] = ""Wert2"""  // No duplicates in deDE
+        };
+
+        _fileSystemMock.Setup(fs => fs.DirectoryExists(localizationDir)).Returns(true);
+        _fileSystemMock.Setup(fs => fs.GetFiles(localizationDir, "*.lua", SearchOption.TopDirectoryOnly))
+            .Returns(["/addon/Localization/enUS.lua", "/addon/Localization/deDE.lua"]);
+        
+        _fileSystemMock.Setup(fs => fs.FileExists("/addon/Localization/enUS.lua")).Returns(true);
+        _fileSystemMock.Setup(fs => fs.FileExists("/addon/Localization/deDE.lua")).Returns(true);
+        _fileSystemMock.Setup(fs => fs.ReadAllLinesAsync("/addon/Localization/enUS.lua")).ReturnsAsync(enUSContent);
+        _fileSystemMock.Setup(fs => fs.ReadAllLinesAsync("/addon/Localization/deDE.lua")).ReturnsAsync(deDEContent);
+
+        var dataSet = await _parser.ParseLocalizationDirectoryAsync(localizationDir);
+
+        Assert.True(dataSet.HasDuplicates);
+        Assert.Equal(1, dataSet.TotalDuplicateCount);
+        
+        var enUSDuplicates = dataSet.GetDuplicates("enUS");
+        Assert.Single(enUSDuplicates);
+        Assert.Equal("Key1", enUSDuplicates[0].Key);
+        
+        var deDEDuplicates = dataSet.GetDuplicates("deDE");
+        Assert.Empty(deDEDuplicates);
+    }
+
+    #endregion
+
     private void SetupFileWithLines(string filePath, string[] lines)
     {
         _fileSystemMock.Setup(fs => fs.FileExists(filePath)).Returns(true);

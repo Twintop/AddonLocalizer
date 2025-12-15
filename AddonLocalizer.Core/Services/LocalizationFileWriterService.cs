@@ -27,6 +27,10 @@ public class LocalizationFileWriterService(IFileSystemService fileSystem) : ILoc
         Dictionary<string, string> translations,
         bool createBackup = true)
     {
+        System.Diagnostics.Debug.WriteLine($"[FileWriter] SaveLocaleFileAsync called for {localeCode}");
+        System.Diagnostics.Debug.WriteLine($"[FileWriter] Directory: {localizationDir}");
+        System.Diagnostics.Debug.WriteLine($"[FileWriter] Translations count: {translations.Count}");
+        
         if (!fileSystem.DirectoryExists(localizationDir))
         {
             throw new DirectoryNotFoundException($"Localization directory not found: {localizationDir}");
@@ -38,10 +42,13 @@ public class LocalizationFileWriterService(IFileSystemService fileSystem) : ILoc
         }
 
         var filePath = Path.Combine(localizationDir, $"{localeCode}.lua");
+        System.Diagnostics.Debug.WriteLine($"[FileWriter] Target file path: {filePath}");
+        System.Diagnostics.Debug.WriteLine($"[FileWriter] File exists: {fileSystem.FileExists(filePath)}");
 
         // Create backup if file exists and backup is requested
         if (createBackup && fileSystem.FileExists(filePath))
         {
+            System.Diagnostics.Debug.WriteLine($"[FileWriter] Creating backup...");
             await CreateBackupAsync(filePath);
         }
 
@@ -50,13 +57,17 @@ public class LocalizationFileWriterService(IFileSystemService fileSystem) : ILoc
         if (fileSystem.FileExists(filePath))
         {
             existingLines = (await fileSystem.ReadAllLinesAsync(filePath)).ToList();
+            System.Diagnostics.Debug.WriteLine($"[FileWriter] Read {existingLines.Count} existing lines from file");
         }
 
         // Generate new file content
         var newContent = GenerateLocaleFileContent(localeCode, translations, existingLines);
+        System.Diagnostics.Debug.WriteLine($"[FileWriter] Generated {newContent.Count} new lines");
 
         // Write to file
+        System.Diagnostics.Debug.WriteLine($"[FileWriter] Writing to file...");
         await fileSystem.WriteAllLinesAsync(filePath, newContent);
+        System.Diagnostics.Debug.WriteLine($"[FileWriter] File written successfully");
     }
 
     /// <summary>
@@ -172,6 +183,8 @@ public class LocalizationFileWriterService(IFileSystemService fileSystem) : ILoc
         var localeBlockEndIndex = -1;
         var hasLocaleBlock = false;
 
+        System.Diagnostics.Debug.WriteLine($"[FileWriter] MergeWithExistingFile: {existingLines.Count} existing lines, {translations.Count} translations");
+
         // Find the locale block boundaries (if present)
         for (var i = 0; i < existingLines.Count; i++)
         {
@@ -188,6 +201,8 @@ public class LocalizationFileWriterService(IFileSystemService fileSystem) : ILoc
                 break;
             }
         }
+
+        System.Diagnostics.Debug.WriteLine($"[FileWriter] Has locale block: {hasLocaleBlock}, start: {localeBlockStartIndex}, end: {localeBlockEndIndex}");
 
         // If no locale block, find the range of L["key"] assignments
         if (!hasLocaleBlock)
@@ -208,6 +223,8 @@ public class LocalizationFileWriterService(IFileSystemService fileSystem) : ILoc
                 }
             }
 
+            System.Diagnostics.Debug.WriteLine($"[FileWriter] Assignment range: {firstAssignmentIndex} to {lastAssignmentIndex}");
+
             if (firstAssignmentIndex >= 0)
             {
                 // Copy everything before the first assignment
@@ -215,6 +232,10 @@ public class LocalizationFileWriterService(IFileSystemService fileSystem) : ILoc
                 {
                     result.Add(existingLines[i]);
                 }
+
+                var skippedDuplicates = 0;
+                var skippedOrphans = 0;
+                var written = 0;
 
                 // Process existing assignments
                 for (var i = firstAssignmentIndex; i <= lastAssignmentIndex; i++)
@@ -229,17 +250,29 @@ public class LocalizationFileWriterService(IFileSystemService fileSystem) : ILoc
                         {
                             var key = keyMatch.Groups[1].Value;
                             
-                            // Only include this key if it's in the translations dictionary
-                            if (translations.TryGetValue(key, out var newValue))
+                            // Only include this key if it's in the translations dictionary AND not already processed
+                            // This handles duplicates by keeping only the first occurrence
+                            if (processedKeys.Contains(key))
+                            {
+                                skippedDuplicates++;
+                                System.Diagnostics.Debug.WriteLine($"[FileWriter] Skipping duplicate: {key}");
+                            }
+                            else if (translations.TryGetValue(key, out var newValue))
                             {
                                 if (!string.IsNullOrWhiteSpace(newValue))
                                 {
                                     var lineIndent = GetIndentation(line);
                                     result.Add($"{lineIndent}L[\"{key}\"] = \"{EscapeLuaString(newValue)}\"");
                                     processedKeys.Add(key);
+                                    written++;
                                 }
                             }
-                            // If key not in translations, skip it (removes orphaned entries)
+                            else
+                            {
+                                skippedOrphans++;
+                                System.Diagnostics.Debug.WriteLine($"[FileWriter] Skipping orphan: {key}");
+                            }
+                            // If key already processed or not in translations, skip it (removes duplicates and orphaned entries)
                         }
                     }
                     else
@@ -249,18 +282,24 @@ public class LocalizationFileWriterService(IFileSystemService fileSystem) : ILoc
                     }
                 }
 
+                System.Diagnostics.Debug.WriteLine($"[FileWriter] Processed: written={written}, skippedDuplicates={skippedDuplicates}, skippedOrphans={skippedOrphans}");
+
                 // Add new translations that weren't in the original file
                 var defaultIndent = firstAssignmentIndex > 0 
                     ? GetIndentation(existingLines[firstAssignmentIndex]) 
                     : "";
-                    
+                
+                var newKeys = 0;
                 foreach (var (key, value) in translations.OrderBy(kvp => kvp.Key, StringComparer.OrdinalIgnoreCase))
                 {
                     if (!processedKeys.Contains(key) && !string.IsNullOrWhiteSpace(value))
                     {
                         result.Add($"{defaultIndent}L[\"{key}\"] = \"{EscapeLuaString(value)}\"");
+                        newKeys++;
                     }
                 }
+                
+                System.Diagnostics.Debug.WriteLine($"[FileWriter] Added {newKeys} new keys");
 
                 // Copy everything after the last assignment
                 for (var i = lastAssignmentIndex + 1; i < existingLines.Count; i++)
@@ -268,11 +307,13 @@ public class LocalizationFileWriterService(IFileSystemService fileSystem) : ILoc
                     result.Add(existingLines[i]);
                 }
 
+                System.Diagnostics.Debug.WriteLine($"[FileWriter] Final result: {result.Count} lines");
                 return result;
             }
             else
             {
                 // No assignments found at all, return original with warning
+                System.Diagnostics.Debug.WriteLine($"[FileWriter] No assignments found, preserving original file");
                 result.Add("-- Warning: Could not find any L[\"key\"] assignments, preserving original file");
                 result.AddRange(existingLines);
                 return result;
@@ -299,8 +340,9 @@ public class LocalizationFileWriterService(IFileSystemService fileSystem) : ILoc
                 {
                     var key = keyMatch.Groups[1].Value;
                     
-                    // Only include this key if it's in the translations dictionary
-                    if (translations.TryGetValue(key, out var newValue))
+                    // Only include this key if it's in the translations dictionary AND not already processed
+                    // This handles duplicates by keeping only the first occurrence
+                    if (!processedKeys.Contains(key) && translations.TryGetValue(key, out var newValue))
                     {
                         if (!string.IsNullOrWhiteSpace(newValue))
                         {
@@ -309,7 +351,7 @@ public class LocalizationFileWriterService(IFileSystemService fileSystem) : ILoc
                             processedKeys.Add(key);
                         }
                     }
-                    // If key not in translations, skip it (removes orphaned entries)
+                    // If key already processed or not in translations, skip it (removes duplicates and orphaned entries)
                 }
             }
             else if (!trimmed.StartsWith("--") || trimmed.Contains("L["))

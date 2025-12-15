@@ -1,5 +1,31 @@
 namespace AddonLocalizer.Core.Models;
 
+/// <summary>
+/// Represents a duplicate localization entry found in a locale file
+/// </summary>
+public class DuplicateEntry
+{
+    /// <summary>
+    /// The localization key that has duplicates
+    /// </summary>
+    public string Key { get; set; } = string.Empty;
+    
+    /// <summary>
+    /// All values found for this key, in order of appearance
+    /// </summary>
+    public List<string> Values { get; set; } = [];
+    
+    /// <summary>
+    /// The value that will be used (the last one)
+    /// </summary>
+    public string FinalValue => Values.Count > 0 ? Values[^1] : string.Empty;
+    
+    /// <summary>
+    /// Number of times this key appears
+    /// </summary>
+    public int OccurrenceCount => Values.Count;
+}
+
 public class GlueStringLocation
 {
     public string FilePath { get; set; } = string.Empty;
@@ -202,6 +228,9 @@ public class LocalizationDataSet
     // GT translations: BaseLocale (e.g., "de") -> (GlueString -> Translation)
     private readonly Dictionary<string, Dictionary<string, string>> _gtTranslations = new(StringComparer.OrdinalIgnoreCase);
 
+    // Duplicate entries per locale: Locale code -> List of duplicate entries
+    private readonly Dictionary<string, List<DuplicateEntry>> _duplicates = new(StringComparer.OrdinalIgnoreCase);
+
     // All unique glue strings across all locales
     public HashSet<string> AllGlueStrings { get; } = new(StringComparer.OrdinalIgnoreCase);
 
@@ -215,6 +244,19 @@ public class LocalizationDataSet
         foreach (var key in translations.Keys)
         {
             AllGlueStrings.Add(key);
+        }
+    }
+
+    /// <summary>
+    /// Add translations for a specific locale, along with any detected duplicates
+    /// </summary>
+    public void AddLocale(string localeCode, Dictionary<string, string> translations, List<DuplicateEntry>? duplicates)
+    {
+        AddLocale(localeCode, translations);
+        
+        if (duplicates != null && duplicates.Count > 0)
+        {
+            _duplicates[localeCode] = duplicates;
         }
     }
 
@@ -288,6 +330,35 @@ public class LocalizationDataSet
     /// Get list of loaded GT base locales
     /// </summary>
     public IEnumerable<string> LoadedGTLocales => _gtTranslations.Keys;
+
+    /// <summary>
+    /// Get all locales that have duplicate entries
+    /// </summary>
+    public IEnumerable<string> LocalesWithDuplicates => _duplicates.Keys;
+
+    /// <summary>
+    /// Check if any locale has duplicates
+    /// </summary>
+    public bool HasDuplicates => _duplicates.Count > 0;
+
+    /// <summary>
+    /// Get total count of duplicate entries across all locales
+    /// </summary>
+    public int TotalDuplicateCount => _duplicates.Values.Sum(d => d.Count);
+
+    /// <summary>
+    /// Get duplicates for a specific locale
+    /// </summary>
+    public List<DuplicateEntry> GetDuplicates(string localeCode)
+    {
+        return _duplicates.TryGetValue(localeCode, out var duplicates) ? duplicates : [];
+    }
+
+    /// <summary>
+    /// Get all duplicates across all locales, grouped by locale
+    /// </summary>
+    public Dictionary<string, List<DuplicateEntry>> GetAllDuplicates() => 
+        new(_duplicates, StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Get count of translations for a specific locale

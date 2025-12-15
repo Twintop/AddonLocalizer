@@ -917,5 +917,118 @@ public class LocalizationFileWriterServiceTests
         Assert.Equal(3, assignmentLines);
     }
 
+    [Fact]
+    public async Task SaveLocaleFileAsync_FileWithDuplicates_RemovesDuplicateEntries()
+    {
+        var localizationDir = "/addon/Localization";
+        var localeCode = "enUS";
+        
+        // File with duplicate entries - same key appears multiple times
+        var existingLines = new[]
+        {
+            "local _, TRB = ...",
+            "local L = TRB.Localization",
+            "L[\"DuplicateKey\"] = \"First Value\"",
+            "L[\"UniqueKey\"] = \"Unique Value\"",
+            "L[\"DuplicateKey\"] = \"Second Value\"",
+            "L[\"AnotherKey\"] = \"Another Value\"",
+            "L[\"DuplicateKey\"] = \"Third Value\""
+        };
+
+        // Translations with de-duplicated values (last value wins during parsing)
+        var translations = new Dictionary<string, string>
+        {
+            ["DuplicateKey"] = "Third Value",
+            ["UniqueKey"] = "Unique Value",
+            ["AnotherKey"] = "Another Value"
+        };
+
+        _fileSystemMock.Setup(fs => fs.DirectoryExists(localizationDir)).Returns(true);
+        _fileSystemMock.Setup(fs => fs.FileExists(It.IsAny<string>())).Returns(true);
+        _fileSystemMock.Setup(fs => fs.ReadAllLinesAsync(It.IsAny<string>())).ReturnsAsync(existingLines);
+
+        List<string>? capturedLines = null;
+        _fileSystemMock.Setup(fs => fs.WriteAllLinesAsync(It.IsAny<string>(), It.IsAny<IEnumerable<string>>()))
+            .Callback<string, IEnumerable<string>>((path, lines) => capturedLines = lines.ToList())
+            .Returns(Task.CompletedTask);
+
+        await _writer.SaveLocaleFileAsync(localizationDir, localeCode, translations, createBackup: false);
+
+        Assert.NotNull(capturedLines);
+        
+        // Count occurrences of DuplicateKey - should be exactly 1
+        var duplicateKeyLines = capturedLines.Count(l => l.Contains("DuplicateKey"));
+        Assert.Equal(1, duplicateKeyLines);
+        
+        // The value should be the last one (Third Value)
+        Assert.Contains(capturedLines, l => l.Contains("DuplicateKey") && l.Contains("Third Value"));
+        
+        // Other keys should still be present
+        Assert.Contains(capturedLines, l => l.Contains("UniqueKey"));
+        Assert.Contains(capturedLines, l => l.Contains("AnotherKey"));
+        
+        // Total assignment lines should be 3
+        var assignmentLines = capturedLines.Count(l => l.TrimStart().StartsWith("L[\""));
+        Assert.Equal(3, assignmentLines);
+    }
+
+    [Fact]
+    public async Task SaveLocaleFileAsync_FileWithDuplicatesInLocaleBlock_RemovesDuplicateEntries()
+    {
+        var localizationDir = "/addon/Localization";
+        var localeCode = "deDE";
+        var filePath = "/addon/Localization/deDE.lua";
+        
+        // File with locale block and duplicate entries
+        var existingLines = new[]
+        {
+            "local _, TRB = ...",
+            "",
+            "local locale = GetLocale()",
+            "",
+            "if locale == \"deDE\" then",
+            "    local L = TRB.Localization",
+            "    L[\"DuplicateKey\"] = \"Erster Wert\"",
+            "    L[\"UniqueKey\"] = \"Einzigartiger Wert\"",
+            "    L[\"DuplicateKey\"] = \"Zweiter Wert\"",
+            "end"
+        };
+
+        // Translations with de-duplicated values
+        var translations = new Dictionary<string, string>
+        {
+            ["DuplicateKey"] = "Zweiter Wert",
+            ["UniqueKey"] = "Einzigartiger Wert"
+        };
+
+        _fileSystemMock.Setup(fs => fs.DirectoryExists(localizationDir)).Returns(true);
+        _fileSystemMock.Setup(fs => fs.FileExists(filePath)).Returns(true);
+        _fileSystemMock.Setup(fs => fs.ReadAllLinesAsync(filePath)).ReturnsAsync(existingLines);
+
+        List<string>? capturedLines = null;
+        _fileSystemMock.Setup(fs => fs.WriteAllLinesAsync(It.IsAny<string>(), It.IsAny<IEnumerable<string>>()))
+            .Callback<string, IEnumerable<string>>((path, lines) => capturedLines = lines.ToList())
+            .Returns(Task.CompletedTask);
+
+        await _writer.SaveLocaleFileAsync(localizationDir, localeCode, translations, createBackup: false);
+
+        Assert.NotNull(capturedLines);
+        
+        // Count occurrences of DuplicateKey - should be exactly 1
+        var duplicateKeyLines = capturedLines.Count(l => l.Contains("DuplicateKey"));
+        Assert.Equal(1, duplicateKeyLines);
+        
+        // The value should be the last one (Zweiter Wert)
+        Assert.Contains(capturedLines, l => l.Contains("DuplicateKey") && l.Contains("Zweiter Wert"));
+        
+        // Structure should be preserved
+        Assert.Contains("if locale == \"deDE\" then", capturedLines);
+        Assert.Contains("end", capturedLines);
+        
+        // Total assignment lines should be 2
+        var assignmentLines = capturedLines.Count(l => l.TrimStart().StartsWith("L[\""));
+        Assert.Equal(2, assignmentLines);
+    }
+
     #endregion
 }

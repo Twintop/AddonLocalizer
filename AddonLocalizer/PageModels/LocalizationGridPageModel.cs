@@ -114,6 +114,15 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
     [ObservableProperty]
     private int _orphanedFileCount;
 
+    [ObservableProperty]
+    private bool _hasDuplicateEntries;
+
+    [ObservableProperty]
+    private int _duplicateEntryCount;
+
+    [ObservableProperty]
+    private Dictionary<string, List<DuplicateEntry>> _duplicateEntriesByLocale = [];
+
     private ParseResult? _parseResult;
     private LocalizationDataSet? _localizationData;
     private string? _localizationDirectory;
@@ -208,6 +217,21 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
                     await _parserService.LoadGTFilesAsync(_localizationDirectory, _localizationData);
                     
                     Debug.WriteLine($"[GridPage] Reloaded localization data with {_localizationData.LoadedLocales.Count()} locales");
+                    
+                    // Check for duplicates
+                    if (_localizationData.HasDuplicates)
+                    {
+                        DuplicateEntriesByLocale = _localizationData.GetAllDuplicates();
+                        DuplicateEntryCount = _localizationData.TotalDuplicateCount;
+                        HasDuplicateEntries = true;
+                        Debug.WriteLine($"[GridPage] Found {DuplicateEntryCount} duplicate entries across {DuplicateEntriesByLocale.Count} locales");
+                    }
+                    else
+                    {
+                        DuplicateEntriesByLocale = [];
+                        DuplicateEntryCount = 0;
+                        HasDuplicateEntries = false;
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -306,8 +330,11 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
                     var orphanedInfo = HasOrphanedEntries 
                         ? $" | ?? {OrphanedEntryCount} orphaned" 
                         : "";
+                    var duplicateInfo = HasDuplicateEntries
+                        ? $" | ?? {DuplicateEntryCount} duplicates"
+                        : "";
                     StatusMessage = HasData 
-                        ? $"Showing {FilteredCount} of {TotalCount} entries{localeInfo}{orphanedInfo}" 
+                        ? $"Showing {FilteredCount} of {TotalCount} entries{localeInfo}{orphanedInfo}{duplicateInfo}" 
                         : "No entries to display";
 
                     // Setup property change monitoring for entries
@@ -325,6 +352,12 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
                     throw;
                 }
             });
+            
+            // Show duplicate entries alert after UI is loaded
+            if (HasDuplicateEntries)
+            {
+                await ShowDuplicateEntriesAlertAsync();
+            }
         }
         catch (Exception ex)
         {
@@ -362,6 +395,154 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
             e.PropertyName?.StartsWith("Zh") == true)
         {
             UpdateChangeTracking();
+        }
+    }
+
+    private async Task ShowDuplicateEntriesAlertAsync()
+    {
+        if (!HasDuplicateEntries || DuplicateEntriesByLocale.Count == 0)
+            return;
+
+        // Build a summary message
+        var summary = new System.Text.StringBuilder();
+        summary.AppendLine("Duplicate localization entries were found. The last value for each key will be used.");
+        summary.AppendLine();
+        
+        foreach (var (locale, duplicates) in DuplicateEntriesByLocale.OrderBy(kvp => kvp.Key))
+        {
+            summary.AppendLine($"?? {locale}.lua ({duplicates.Count} duplicate{(duplicates.Count > 1 ? "s" : "")}):");
+            
+            // Show first few duplicates (limit to avoid too long message)
+            var displayLimit = Math.Min(duplicates.Count, 5);
+            foreach (var dup in duplicates.Take(displayLimit))
+            {
+                summary.AppendLine($"  • {dup.Key} ({dup.OccurrenceCount} occurrences)");
+            }
+            
+            if (duplicates.Count > displayLimit)
+            {
+                summary.AppendLine($"  ... and {duplicates.Count - displayLimit} more");
+            }
+            summary.AppendLine();
+        }
+
+        summary.AppendLine("Would you like to clean up these duplicates now?");
+        summary.AppendLine("(This will save the files with duplicates removed, keeping the last value for each key)");
+
+        var shouldCleanup = await _dialogService.ShowConfirmationAsync(
+            "?? Duplicate Entries Found",
+            summary.ToString(),
+            "Clean Up Duplicates",
+            "Skip for Now");
+
+        if (shouldCleanup)
+        {
+            await CleanupDuplicateEntriesAsync();
+        }
+    }
+
+    [RelayCommand]
+    private async Task CleanupDuplicateEntriesAsync()
+    {
+        if (!HasDuplicateEntries || string.IsNullOrEmpty(_localizationDirectory))
+        {
+            await _dialogService.ShowAlertAsync("No Duplicates", "No duplicate entries to clean up.");
+            return;
+        }
+
+        try
+        {
+            IsSaving = true;
+            SaveProgress = 0;
+            StatusMessage = "Cleaning up duplicate entries...";
+            Debug.WriteLine("[GridPage] Starting duplicate cleanup...");
+            Debug.WriteLine($"[GridPage] Localization directory: {_localizationDirectory}");
+            Debug.WriteLine($"[GridPage] Locales with duplicates: {string.Join(", ", DuplicateEntriesByLocale.Keys)}");
+
+            var totalLocales = DuplicateEntriesByLocale.Count;
+            var processedLocales = 0;
+            var cleanedLocales = new List<string>();
+
+            foreach (var (localeCode, duplicates) in DuplicateEntriesByLocale)
+            {
+                try
+                {
+                    StatusMessage = $"Cleaning up {localeCode}...";
+                    Debug.WriteLine($"[GridPage] Processing {localeCode} with {duplicates.Count} duplicate keys:");
+                    foreach (var dup in duplicates)
+                    {
+                        Debug.WriteLine($"[GridPage]   - {dup.Key}: {dup.OccurrenceCount} occurrences, final value = '{dup.FinalValue}'");
+                    }
+                    
+                    // Get the current translations (already de-duplicated with last value winning)
+                    var translations = _localizationData?.GetLocaleData(localeCode);
+                    if (translations == null || translations.Count == 0)
+                    {
+                        Debug.WriteLine($"[GridPage] No translations found for {localeCode}, skipping");
+                        continue;
+                    }
+
+                    Debug.WriteLine($"[GridPage] Retrieved {translations.Count} translations for {localeCode}");
+                    
+                    // Log sample translations to verify values
+                    foreach (var dup in duplicates.Take(3))
+                    {
+                        if (translations.TryGetValue(dup.Key, out var value))
+                        {
+                            Debug.WriteLine($"[GridPage]   Translation for '{dup.Key}' = '{value}'");
+                        }
+                        else
+                        {
+                            Debug.WriteLine($"[GridPage]   WARNING: Key '{dup.Key}' not found in translations!");
+                        }
+                    }
+
+                    // Save the file (this will write without duplicates)
+                    Debug.WriteLine($"[GridPage] Calling SaveLocaleFileAsync for {localeCode}...");
+                    await _fileWriter.SaveLocaleFileAsync(
+                        _localizationDirectory,
+                        localeCode,
+                        translations,
+                        createBackup: true);
+
+                    cleanedLocales.Add(localeCode);
+                    Debug.WriteLine($"[GridPage] Successfully cleaned up duplicates in {localeCode}");
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[GridPage] Error cleaning up {localeCode}: {ex.Message}");
+                    Debug.WriteLine($"[GridPage] Stack trace: {ex.StackTrace}");
+                    await _dialogService.ShowAlertAsync("Error", $"Failed to clean up {localeCode}: {ex.Message}");
+                }
+
+                processedLocales++;
+                SaveProgress = (double)processedLocales / totalLocales;
+            }
+
+            // Clear duplicate tracking
+            DuplicateEntriesByLocale = [];
+            DuplicateEntryCount = 0;
+            HasDuplicateEntries = false;
+
+            // Reload data to reflect changes
+            await LoadDataAsync();
+
+            var message = cleanedLocales.Count > 0
+                ? $"Successfully cleaned up duplicates in {cleanedLocales.Count} locale{(cleanedLocales.Count > 1 ? "s" : "")}: {string.Join(", ", cleanedLocales)}\n\nBackups were created for each file."
+                : "No locales needed cleanup.";
+
+            await _dialogService.ShowAlertAsync("Cleanup Complete", message);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[GridPage] Error during duplicate cleanup: {ex.Message}");
+            Debug.WriteLine($"[GridPage] Stack trace: {ex.StackTrace}");
+            await _dialogService.ShowAlertAsync("Error", $"An error occurred during cleanup: {ex.Message}");
+        }
+        finally
+        {
+            IsSaving = false;
+            SaveProgress = 0;
         }
     }
 

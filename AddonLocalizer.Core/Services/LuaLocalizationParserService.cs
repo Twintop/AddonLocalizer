@@ -293,13 +293,31 @@ public class LuaLocalizationParserService(IFileSystemService fileSystem) : ILuaL
     /// <returns>Dictionary of glue string -> translated value</returns>
     public async Task<Dictionary<string, string>> ParseLocaleTranslationsAsync(string filePath)
     {
+        var (translations, _) = await ParseLocaleTranslationsWithDuplicatesAsync(filePath);
+        return translations;
+    }
+
+    /// <summary>
+    /// Parses a locale-specific file to extract translations, also detecting duplicates
+    /// </summary>
+    public async Task<(Dictionary<string, string> Translations, List<DuplicateEntry> Duplicates)> ParseLocaleTranslationsWithDuplicatesAsync(string filePath)
+    {
         if (!fileSystem.FileExists(filePath))
         {
             throw new FileNotFoundException($"File not found: {filePath}");
         }
 
-        var translations = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var lines = await fileSystem.ReadAllLinesAsync(filePath);
+        return ParseLocaleTranslationsCore(lines);
+    }
+
+    /// <summary>
+    /// Core parsing logic shared by sync and async versions
+    /// </summary>
+    private (Dictionary<string, string> Translations, List<DuplicateEntry> Duplicates) ParseLocaleTranslationsCore(string[] lines)
+    {
+        var translations = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var allOccurrences = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var line in lines)
         {
@@ -316,13 +334,33 @@ public class LuaLocalizationParserService(IFileSystemService fileSystem) : ILuaL
                     
                     if (value != null)
                     {
+                        // Track all occurrences for duplicate detection
+                        if (!allOccurrences.TryGetValue(key, out var occurrences))
+                        {
+                            occurrences = [];
+                            allOccurrences[key] = occurrences;
+                        }
+                        occurrences.Add(value);
+                        
+                        // Last value wins
                         translations[key] = value;
                     }
                 }
             }
         }
 
-        return translations;
+        // Build list of duplicates (keys that appear more than once)
+        var duplicates = allOccurrences
+            .Where(kvp => kvp.Value.Count > 1)
+            .Select(kvp => new DuplicateEntry
+            {
+                Key = kvp.Key,
+                Values = kvp.Value
+            })
+            .OrderBy(d => d.Key)
+            .ToList();
+
+        return (translations, duplicates);
     }
 
     /// <summary>
@@ -358,8 +396,8 @@ public class LuaLocalizationParserService(IFileSystemService fileSystem) : ILuaL
             // Check if this is a valid locale code
             if (LocaleDefinitions.IsValidLocale(fileName))
             {
-                var translations = await ParseLocaleTranslationsAsync(filePath);
-                dataSet.AddLocale(fileName, translations);
+                var (translations, duplicates) = await ParseLocaleTranslationsWithDuplicatesAsync(filePath);
+                dataSet.AddLocale(fileName, translations, duplicates);
             }
         }
 
@@ -371,36 +409,22 @@ public class LuaLocalizationParserService(IFileSystemService fileSystem) : ILuaL
     /// </summary>
     public Dictionary<string, string> ParseLocaleTranslations(string filePath)
     {
+        var (translations, _) = ParseLocaleTranslationsWithDuplicates(filePath);
+        return translations;
+    }
+
+    /// <summary>
+    /// Synchronous version of ParseLocaleTranslationsWithDuplicatesAsync
+    /// </summary>
+    public (Dictionary<string, string> Translations, List<DuplicateEntry> Duplicates) ParseLocaleTranslationsWithDuplicates(string filePath)
+    {
         if (!fileSystem.FileExists(filePath))
         {
             throw new FileNotFoundException($"File not found: {filePath}");
         }
 
-        var translations = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var lines = fileSystem.ReadAllLines(filePath);
-
-        foreach (var line in lines)
-        {
-            var match = AssignmentPattern.Match(line);
-            if (match is { Success: true, Groups.Count: > 1 })
-            {
-                var key = match.Groups[1].Value;
-                var assignmentIndex = line.IndexOf('=');
-                
-                if (assignmentIndex >= 0 && assignmentIndex < line.Length - 1)
-                {
-                    var rightSide = line[(assignmentIndex + 1)..].Trim();
-                    var value = ExtractStringValue(rightSide);
-                    
-                    if (value != null)
-                    {
-                        translations[key] = value;
-                    }
-                }
-            }
-        }
-
-        return translations;
+        return ParseLocaleTranslationsCore(lines);
     }
 
     private static string? ExtractStringValue(string rightSide)

@@ -50,13 +50,27 @@ public interface ILuaLocalizationParserService
     Task<Dictionary<string, string>> ParseLocaleTranslationsAsync(string filePath);
     
     /// <summary>
+    /// Parses a locale-specific file to extract translations, also detecting duplicates.
+    /// Returns both the translations (with last value winning) and a list of duplicate entries.
+    /// </summary>
+    /// <param name="filePath">Path to locale file</param>
+    /// <returns>Tuple of translations dictionary and list of duplicate entries</returns>
+    Task<(Dictionary<string, string> Translations, List<DuplicateEntry> Duplicates)> ParseLocaleTranslationsWithDuplicatesAsync(string filePath);
+    
+    /// <summary>
     /// Synchronous version of ParseLocaleTranslationsAsync.
     /// </summary>
     Dictionary<string, string> ParseLocaleTranslations(string filePath);
     
     /// <summary>
+    /// Synchronous version of ParseLocaleTranslationsWithDuplicatesAsync.
+    /// </summary>
+    (Dictionary<string, string> Translations, List<DuplicateEntry> Duplicates) ParseLocaleTranslationsWithDuplicates(string filePath);
+    
+    /// <summary>
     /// Parses entire Localization directory, loading all locale files.
     /// Automatically excludes Google Translate files (*GT.lua) by default.
+    /// Also detects and stores duplicate entries for each locale.
     /// </summary>
     /// <param name="localizationDir">Path to Localization directory</param>
     /// <param name="excludePatterns">Patterns to exclude (default: ["GT.lua"])</param>
