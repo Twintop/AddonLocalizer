@@ -103,6 +103,9 @@ public partial class LocalizationEntryViewModel : ObservableObject
     // Track original translations for change detection
     private readonly Dictionary<string, string> _originalTranslations = new(StringComparer.OrdinalIgnoreCase);
 
+    // Track if enUS was changed - used to prompt for re-translation
+    private bool _enUSWasChanged;
+
     public LocalizationEntryViewModel(string glueString, GlueStringInfo info, LocalizationDataSet? localizationData = null)
     {
         _glueString = glueString;
@@ -295,6 +298,113 @@ public partial class LocalizationEntryViewModel : ObservableObject
         _originalTranslations["ruRU"] = RuRU;
         _originalTranslations["zhCN"] = ZhCN;
         _originalTranslations["zhTW"] = ZhTW;
+    }
+
+    /// <summary>
+    /// Check if the enUS translation has been modified from its original value
+    /// </summary>
+    public bool HasEnUSChanged()
+    {
+        return EnUS != _originalTranslations.GetValueOrDefault("enUS", string.Empty);
+    }
+
+    /// <summary>
+    /// Get the original enUS value before any changes
+    /// </summary>
+    public string GetOriginalEnUS()
+    {
+        return _originalTranslations.GetValueOrDefault("enUS", string.Empty);
+    }
+
+    /// <summary>
+    /// Check if there are any non-enUS manual translations that could be affected by enUS change
+    /// This includes other English variants (enGB, enTW, enCN) as well as all other languages
+    /// </summary>
+    public bool HasNonEnUSManualTranslations()
+    {
+        return !string.IsNullOrWhiteSpace(EnGB) ||
+               !string.IsNullOrWhiteSpace(EnTW) ||
+               !string.IsNullOrWhiteSpace(EnCN) ||
+               !string.IsNullOrWhiteSpace(DeDE) ||
+               !string.IsNullOrWhiteSpace(EsES) ||
+               !string.IsNullOrWhiteSpace(EsMX) ||
+               !string.IsNullOrWhiteSpace(FrFR) ||
+               !string.IsNullOrWhiteSpace(ItIT) ||
+               !string.IsNullOrWhiteSpace(KoKR) ||
+               !string.IsNullOrWhiteSpace(PtBR) ||
+               !string.IsNullOrWhiteSpace(PtPT) ||
+               !string.IsNullOrWhiteSpace(RuRU) ||
+               !string.IsNullOrWhiteSpace(ZhCN) ||
+               !string.IsNullOrWhiteSpace(ZhTW);
+    }
+
+    /// <summary>
+    /// Clear all non-enUS manual translations (locale files, not GT)
+    /// This includes other English variants (enGB, enTW, enCN) as well as all other languages
+    /// </summary>
+    public void ClearNonEnUSTranslations()
+    {
+        EnGB = string.Empty;
+        EnTW = string.Empty;
+        EnCN = string.Empty;
+        DeDE = string.Empty;
+        EsES = string.Empty;
+        EsMX = string.Empty;
+        FrFR = string.Empty;
+        ItIT = string.Empty;
+        KoKR = string.Empty;
+        PtBR = string.Empty;
+        PtPT = string.Empty;
+        RuRU = string.Empty;
+        ZhCN = string.Empty;
+        ZhTW = string.Empty;
+    }
+
+    /// <summary>
+    /// Get list of non-enUS locales that have manual translations
+    /// This includes other English variants (enGB, enTW, enCN) as well as all other languages
+    /// </summary>
+    public List<string> GetNonEnUSLocalesWithTranslations()
+    {
+        var locales = new List<string>();
+        
+        if (!string.IsNullOrWhiteSpace(EnGB)) locales.Add("enGB");
+        if (!string.IsNullOrWhiteSpace(EnTW)) locales.Add("enTW");
+        if (!string.IsNullOrWhiteSpace(EnCN)) locales.Add("enCN");
+        if (!string.IsNullOrWhiteSpace(DeDE)) locales.Add("deDE");
+        if (!string.IsNullOrWhiteSpace(EsES)) locales.Add("esES");
+        if (!string.IsNullOrWhiteSpace(EsMX)) locales.Add("esMX");
+        if (!string.IsNullOrWhiteSpace(FrFR)) locales.Add("frFR");
+        if (!string.IsNullOrWhiteSpace(ItIT)) locales.Add("itIT");
+        if (!string.IsNullOrWhiteSpace(KoKR)) locales.Add("koKR");
+        if (!string.IsNullOrWhiteSpace(PtBR)) locales.Add("ptBR");
+        if (!string.IsNullOrWhiteSpace(PtPT)) locales.Add("ptPT");
+        if (!string.IsNullOrWhiteSpace(RuRU)) locales.Add("ruRU");
+        if (!string.IsNullOrWhiteSpace(ZhCN)) locales.Add("zhCN");
+        if (!string.IsNullOrWhiteSpace(ZhTW)) locales.Add("zhTW");
+        
+        return locales;
+    }
+
+    /// <summary>
+    /// Mark that the enUS value was changed (for tracking re-translation needs)
+    /// </summary>
+    public void MarkEnUSChanged()
+    {
+        _enUSWasChanged = true;
+    }
+
+    /// <summary>
+    /// Check if enUS was marked as changed (for re-translation tracking)
+    /// </summary>
+    public bool WasEnUSChanged => _enUSWasChanged;
+
+    /// <summary>
+    /// Clear the enUS changed flag (after re-translation is complete)
+    /// </summary>
+    public void ClearEnUSChangedFlag()
+    {
+        _enUSWasChanged = false;
     }
 
     /// <summary>

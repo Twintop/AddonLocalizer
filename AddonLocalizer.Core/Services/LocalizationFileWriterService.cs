@@ -259,12 +259,19 @@ public class LocalizationFileWriterService(IFileSystemService fileSystem) : ILoc
                             }
                             else if (translations.TryGetValue(key, out var newValue))
                             {
+                                // Mark as processed regardless of whether we write it
+                                processedKeys.Add(key);
+                                
                                 if (!string.IsNullOrWhiteSpace(newValue))
                                 {
                                     var lineIndent = GetIndentation(line);
                                     result.Add($"{lineIndent}L[\"{key}\"] = \"{EscapeLuaString(newValue)}\"");
-                                    processedKeys.Add(key);
                                     written++;
+                                }
+                                else
+                                {
+                                    // Empty value means we want to REMOVE this entry
+                                    System.Diagnostics.Debug.WriteLine($"[FileWriter] Removing entry (empty value): {key}");
                                 }
                             }
                             else
@@ -340,18 +347,31 @@ public class LocalizationFileWriterService(IFileSystemService fileSystem) : ILoc
                 {
                     var key = keyMatch.Groups[1].Value;
                     
-                    // Only include this key if it's in the translations dictionary AND not already processed
-                    // This handles duplicates by keeping only the first occurrence
-                    if (!processedKeys.Contains(key) && translations.TryGetValue(key, out var newValue))
+                    // Skip if already processed (handles duplicates)
+                    if (processedKeys.Contains(key))
                     {
+                        System.Diagnostics.Debug.WriteLine($"[FileWriter] Skipping duplicate in locale block: {key}");
+                        continue;
+                    }
+                    
+                    // Only include this key if it's in the translations dictionary
+                    if (translations.TryGetValue(key, out var newValue))
+                    {
+                        // Mark as processed regardless of whether we write it
+                        processedKeys.Add(key);
+                        
                         if (!string.IsNullOrWhiteSpace(newValue))
                         {
                             var lineIndent = GetIndentation(line);
                             result.Add($"{lineIndent}L[\"{key}\"] = \"{EscapeLuaString(newValue)}\"");
-                            processedKeys.Add(key);
+                        }
+                        else
+                        {
+                            // Empty value means we want to REMOVE this entry
+                            System.Diagnostics.Debug.WriteLine($"[FileWriter] Removing entry in locale block (empty value): {key}");
                         }
                     }
-                    // If key already processed or not in translations, skip it (removes duplicates and orphaned entries)
+                    // If not in translations, it's orphaned - skip it
                 }
             }
             else if (!trimmed.StartsWith("--") || trimmed.Contains("L["))

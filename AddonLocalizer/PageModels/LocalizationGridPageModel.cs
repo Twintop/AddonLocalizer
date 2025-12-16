@@ -744,20 +744,121 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
             return;
         }
 
-        // Count affected locales
+        // Check for entries where enUS has changed
+        var entriesWithEnUSChanges = modifiedEntries
+            .Where(e => e.HasEnUSChanged())
+            .ToList();
+
+        Debug.WriteLine($"[GridPage] Entries with enUS changes: {entriesWithEnUSChanges.Count}");
+        foreach (var entry in entriesWithEnUSChanges)
+        {
+            Debug.WriteLine($"[GridPage]   {entry.GlueString}: original='{entry.GetOriginalEnUS()}', current='{entry.EnUS}'");
+            Debug.WriteLine($"[GridPage]   HasNonEnUSManualTranslations: {entry.HasNonEnUSManualTranslations()}");
+            if (entry.HasNonEnUSManualTranslations())
+            {
+                var locales = entry.GetNonEnUSLocalesWithTranslations();
+                Debug.WriteLine($"[GridPage]   Non-enUS locales with translations: {string.Join(", ", locales)}");
+            }
+        }
+
+        var entriesToRetranslate = new List<LocalizationEntryViewModel>();
+        var entriesToClearManualTranslations = new List<LocalizationEntryViewModel>();
+
+        if (entriesWithEnUSChanges.Count > 0)
+        {
+            // Check which have non-enUS manual translations (includes enGB, enTW, enCN and all other languages)
+            var entriesWithManualTranslations = entriesWithEnUSChanges
+                .Where(e => e.HasNonEnUSManualTranslations())
+                .ToList();
+
+            Debug.WriteLine($"[GridPage] Entries with manual translations: {entriesWithManualTranslations.Count}");
+
+            if (entriesWithManualTranslations.Count > 0)
+            {
+                // Build details about affected entries
+                var details = new System.Text.StringBuilder();
+                details.AppendLine($"{entriesWithManualTranslations.Count} entry/entries have enUS changes with existing translations in other locales:");
+                details.AppendLine();
+                
+                foreach (var entry in entriesWithManualTranslations.Take(5))
+                {
+                    var locales = entry.GetNonEnUSLocalesWithTranslations();
+                    details.AppendLine($"• {entry.GlueString}");
+                    details.AppendLine($"  Old: \"{entry.GetOriginalEnUS()}\"");
+                    details.AppendLine($"  New: \"{entry.EnUS}\"");
+                    details.AppendLine($"  Has translations: {string.Join(", ", locales)}");
+                    details.AppendLine();
+                }
+                
+                if (entriesWithManualTranslations.Count > 5)
+                {
+                    details.AppendLine($"... and {entriesWithManualTranslations.Count - 5} more");
+                    details.AppendLine();
+                }
+
+                details.AppendLine("These translations may now be out of date.");
+                details.AppendLine("Would you like to clear them?");
+
+                var clearManualTranslations = await _dialogService.ShowConfirmationAsync(
+                    "?? enUS Changed - Clear Other Translations?",
+                    details.ToString(),
+                    "Clear Translations",
+                    "Keep Translations");
+
+                if (clearManualTranslations)
+                {
+                    entriesToClearManualTranslations.AddRange(entriesWithManualTranslations);
+                }
+            }
+
+            // Always mark entries for GT re-translation when enUS changes
+            entriesToRetranslate.AddRange(entriesWithEnUSChanges);
+            
+            // Mark them so we know to re-translate after save
+            foreach (var entry in entriesWithEnUSChanges)
+            {
+                entry.MarkEnUSChanged();
+            }
+        }
+
+        // Apply translation clearing if user confirmed
+        foreach (var entry in entriesToClearManualTranslations)
+        {
+            Debug.WriteLine($"[GridPage] Clearing non-enUS translations for: {entry.GlueString}");
+            Debug.WriteLine($"[GridPage]   Before: EnGB='{entry.EnGB}', EnTW='{entry.EnTW}', EnCN='{entry.EnCN}', DeDE='{entry.DeDE}', EsES='{entry.EsES}', FrFR='{entry.FrFR}'");
+            entry.ClearNonEnUSTranslations();
+            Debug.WriteLine($"[GridPage]   After: EnGB='{entry.EnGB}', EnTW='{entry.EnTW}', EnCN='{entry.EnCN}', DeDE='{entry.DeDE}', EsES='{entry.EsES}', FrFR='{entry.FrFR}'");
+        }
+
+        // Count affected locales (recalculate after potential clearing)
+        modifiedEntries = GetModifiedEntries().ToList(); // Refresh list after clearing
+        Debug.WriteLine($"[GridPage] After clearing, modified entries count: {modifiedEntries.Count}");
+        
         var affectedLocales = new HashSet<string>();
         foreach (var entry in modifiedEntries)
         {
             var changes = entry.GetChangedTranslations();
-            foreach (var locale in changes.Keys)
+            Debug.WriteLine($"[GridPage] Entry '{entry.GlueString}' has {changes.Count} changed translations:");
+            foreach (var (locale, value) in changes)
             {
+                Debug.WriteLine($"[GridPage]   {locale} = '{(string.IsNullOrEmpty(value) ? "(empty)" : value)}'");
                 affectedLocales.Add(locale);
             }
         }
+        Debug.WriteLine($"[GridPage] Total affected locales: {affectedLocales.Count} - {string.Join(", ", affectedLocales)}");
+
+        var confirmMessage = $"Save {modifiedEntries.Count} modified translation(s) across {affectedLocales.Count} locale file(s)?";
+        
+        if (entriesToRetranslate.Count > 0)
+        {
+            confirmMessage += $"\n\n{entriesToRetranslate.Count} entry/entries will be re-translated to all GT files after saving.";
+        }
+        
+        confirmMessage += "\n\nBackups will be created automatically.";
 
         var confirm = await _dialogService.ShowConfirmationAsync(
             "Save Changes",
-            $"Save {modifiedEntries.Count} modified translation(s) across {affectedLocales.Count} locale file(s)?\n\nBackups will be created automatically.",
+            confirmMessage,
             "Save",
             "Cancel");
 
@@ -798,15 +899,41 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
                     var existingData = _localizationData.GetLocaleData(localeCode);
                     if (existingData != null)
                     {
+                        Debug.WriteLine($"[GridPage] Merging {localeCode}: {existingData.Count} existing entries");
+                        var addedFromExisting = 0;
                         // Add all existing translations that we haven't modified
                         foreach (var (key, value) in existingData)
                         {
                             if (!localeTranslations[localeCode].ContainsKey(key))
                             {
                                 localeTranslations[localeCode][key] = value;
+                                addedFromExisting++;
                             }
                         }
+                        Debug.WriteLine($"[GridPage]   Added {addedFromExisting} from existing, total now: {localeTranslations[localeCode].Count}");
+                        
+                        // Log any entries with empty values (these should be removals)
+                        var emptyEntries = localeTranslations[localeCode].Where(kvp => string.IsNullOrEmpty(kvp.Value)).ToList();
+                        if (emptyEntries.Count > 0)
+                        {
+                            Debug.WriteLine($"[GridPage]   Entries to REMOVE (empty values): {string.Join(", ", emptyEntries.Select(e => e.Key))}");
+                        }
                     }
+                }
+            }
+
+            // Log what we're about to save
+            Debug.WriteLine($"[GridPage] About to save {localeTranslations.Count} locale files:");
+            foreach (var (localeCode, translations) in localeTranslations)
+            {
+                var emptyCount = translations.Count(kvp => string.IsNullOrEmpty(kvp.Value));
+                var nonEmptyCount = translations.Count - emptyCount;
+                Debug.WriteLine($"[GridPage]   {localeCode}: {nonEmptyCount} entries, {emptyCount} to remove");
+                
+                // Log entries being removed
+                foreach (var (key, value) in translations.Where(kvp => string.IsNullOrEmpty(kvp.Value)))
+                {
+                    Debug.WriteLine($"[GridPage]     REMOVING: {key}");
                 }
             }
 
@@ -846,9 +973,22 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
 
             UpdateChangeTracking();
             
-            await _dialogService.ShowAlertAsync(
-                "Save Successful",
-                $"Successfully saved {modifiedEntries.Count} translation(s) to {localeTranslations.Count} locale file(s).");
+            // Check if we need to re-translate GT files
+            if (entriesToRetranslate.Count > 0)
+            {
+                await _dialogService.ShowAlertAsync(
+                    "Save Successful",
+                    $"Successfully saved {modifiedEntries.Count} translation(s) to {localeTranslations.Count} locale file(s).\n\n" +
+                    $"Now updating {entriesToRetranslate.Count} GT translation(s)...");
+
+                await RetranslateEntriesAsync(entriesToRetranslate);
+            }
+            else
+            {
+                await _dialogService.ShowAlertAsync(
+                    "Save Successful",
+                    $"Successfully saved {modifiedEntries.Count} translation(s) to {localeTranslations.Count} locale file(s).");
+            }
             
             StatusMessage = $"Saved {modifiedEntries.Count} translation(s) to {localeTranslations.Count} file(s)";
         }
@@ -1080,8 +1220,8 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
                 "Cleanup Complete",
                 $"Successfully removed {totalRemoved} orphaned entries from {processedFiles} files.\n\n" +
                 "Reloading data...");
-
-            // Reload data to reflect changes
+            
+            // Optionally, reload data to refresh the UI
             await LoadDataAsync();
         }
         catch (Exception ex)
@@ -1250,15 +1390,13 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
                     continue;
                 }
 
+                TranslationStatus = $"Translating to {baseLocale} ({translationsNeeded[baseLocale]} entries)...";
+                Debug.WriteLine($"[GridPage] Translating {translationsNeeded[baseLocale]} entries to {baseLocale}");
+
                 // Filter to entries missing GT for this locale
                 var missingEntries = entriesToTranslate
                     .Where(e => !HasGTTranslationForBase(e, baseLocale))
                     .ToList();
-
-                if (missingEntries.Count == 0) continue;
-
-                TranslationStatus = $"Translating to {baseLocale} ({missingEntries.Count} entries)...";
-                Debug.WriteLine($"[GridPage] Translating {missingEntries.Count} entries to {baseLocale}");
 
                 var textsToTranslate = missingEntries
                     .Select(e => e.EnUS)
@@ -1393,7 +1531,175 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
 
         // Write the GT file with a special format that includes the base locale code
         await WriteGTFileAsync(gtFilePath, baseLocale, existingTranslations);
-        Debug.WriteLine($"[GridPage] Saved gtFileName: added {addedCount}, removed {orphanedKeys.Count} orphaned");
+        Debug.WriteLine($"[GridPage] Saved {gtFileName}: added {addedCount}, removed {orphanedKeys.Count} orphaned");
+    }
+
+    /// <summary>
+    /// Re-translate specific entries to all GT locales after enUS was changed
+    /// </summary>
+    private async Task RetranslateEntriesAsync(List<LocalizationEntryViewModel> entries)
+    {
+        if (entries.Count == 0) return;
+
+        if (!_translateService.IsConfigured)
+        {
+            // Try to configure from environment variable
+            if (!_translateService.TryConfigureFromEnvironment())
+            {
+                await _dialogService.ShowAlertAsync("Translation Skipped", 
+                    "Google Translate service not configured. GT files were not updated.\n\n" +
+                    "Please set the GOOGLE_APPLICATION_CREDENTIALS environment variable and use Auto-Translate to update GT files.");
+                
+                // Clear the changed flags since we're skipping
+                foreach (var entry in entries)
+                {
+                    entry.ClearEnUSChangedFlag();
+                }
+                return;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(_localizationDirectory))
+        {
+            await _dialogService.ShowAlertAsync("Translation Skipped", 
+                "Localization directory not set. GT files were not updated.");
+            return;
+        }
+
+        try
+        {
+            IsTranslating = true;
+            TranslationProgress = 0;
+            
+            var baseLocales = LocaleDefinitions.GetGTBaseLocales().ToList();
+            var processedLocales = 0;
+
+            // Get unique enUS texts to translate
+            var textsToTranslate = entries
+                .Select(e => e.EnUS)
+                .Where(t => !string.IsNullOrWhiteSpace(t))
+                .Distinct()
+                .ToList();
+
+            Debug.WriteLine($"[GridPage] Re-translating {textsToTranslate.Count} unique texts to {baseLocales.Count} locales");
+
+            foreach (var baseLocale in baseLocales)
+            {
+                var googleLangCode = LocaleDefinitions.GetGoogleLanguageCode(baseLocale);
+                if (string.IsNullOrEmpty(googleLangCode))
+                {
+                    Debug.WriteLine($"[GridPage] No Google language code for {baseLocale}");
+                    continue;
+                }
+
+                TranslationStatus = $"Re-translating to {baseLocale}...";
+                Debug.WriteLine($"[GridPage] Translating to {baseLocale} ({googleLangCode})");
+
+                var translations = await _translateService.TranslateBatchAsync(
+                    textsToTranslate,
+                    googleLangCode,
+                    new Progress<TranslationProgress>(p =>
+                    {
+                        var localeProgress = (double)p.ProcessedCount / p.TotalCount;
+                        var overallProgress = (processedLocales + localeProgress) / baseLocales.Count;
+                        TranslationProgress = overallProgress;
+                    }));
+
+                // Update GT file - this will overwrite existing translations for these entries
+                await UpdateGTTranslationsAsync(baseLocale, entries, translations);
+                
+                processedLocales++;
+                TranslationProgress = (double)processedLocales / baseLocales.Count;
+            }
+
+            // Clear the changed flags
+            foreach (var entry in entries)
+            {
+                entry.ClearEnUSChangedFlag();
+            }
+
+            TranslationStatus = "Re-translation complete!";
+            await _dialogService.ShowAlertAsync("GT Files Updated", 
+                $"Successfully re-translated {entries.Count} entry/entries to {baseLocales.Count} GT files.\n\n" +
+                "Reloading data...");
+            
+            // Reload to show updated GT status
+            await LoadDataAsync();
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[GridPage] Re-translation error: {ex.Message}");
+            Debug.WriteLine($"[GridPage] Stack trace: {ex.StackTrace}");
+            
+            await _dialogService.ShowAlertAsync("Re-Translation Error", 
+                $"An error occurred during re-translation:\n\n{ex.Message}\n\n" +
+                "Some GT files may not have been updated.");
+        }
+        finally
+        {
+            IsTranslating = false;
+            TranslationProgress = 0;
+            TranslationStatus = string.Empty;
+        }
+    }
+
+    /// <summary>
+    /// Update GT translations for specific entries (overwrite existing)
+    /// </summary>
+    private async Task UpdateGTTranslationsAsync(
+        string baseLocale,
+        List<LocalizationEntryViewModel> entries,
+        Dictionary<string, string> translations)
+    {
+        if (string.IsNullOrWhiteSpace(_localizationDirectory)) return;
+
+        var gtFileName = LocaleDefinitions.GetGTFileName(baseLocale);
+        var gtFilePath = Path.Combine(_localizationDirectory, gtFileName);
+
+        // Load existing GT translations if file exists
+        var existingTranslations = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (File.Exists(gtFilePath))
+        {
+            try
+            {
+                existingTranslations = await _parserService.ParseLocaleTranslationsAsync(gtFilePath);
+                Debug.WriteLine($"[GridPage] Loaded {existingTranslations.Count} existing translations from {gtFileName}");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[GridPage] Error loading existing GT file: {ex.Message}");
+            }
+        }
+
+        // Get valid glue string keys from the parse result
+        var validKeys = _parseResult?.GlueStrings.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase) 
+            ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        // Remove orphaned entries
+        var orphanedKeys = existingTranslations.Keys
+            .Where(k => !validKeys.Contains(k))
+            .ToList();
+        
+        foreach (var orphanedKey in orphanedKeys)
+        {
+            existingTranslations.Remove(orphanedKey);
+        }
+
+        // Update/add translations for the changed entries (OVERWRITE existing)
+        var updatedCount = 0;
+        foreach (var entry in entries)
+        {
+            if (translations.TryGetValue(entry.EnUS, out var translated))
+            {
+                existingTranslations[entry.GlueString] = translated;
+                updatedCount++;
+            }
+        }
+
+        Debug.WriteLine($"[GridPage] Updated {updatedCount} translations in {gtFileName}");
+
+        // Write the GT file
+        await WriteGTFileAsync(gtFilePath, baseLocale, existingTranslations);
     }
 
     private async Task WriteGTFileAsync(string filePath, string baseLocale, Dictionary<string, string> translations)
@@ -1606,8 +1912,6 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
                     TranslationStatus = $"Translating to {baseLocale}: {p.ProcessedCount}/{p.TotalCount}";
                 }));
 
-            Debug.WriteLine($"[GridPage] Received {translations.Count} translations");
-
             // Save translations to GT file
             await SaveGTTranslationsAsync(baseLocale, missingEntries, translations);
 
@@ -1617,7 +1921,7 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
                 $"Added {translations.Count} translations.\n\n" +
                 "Reloading data to update GT status...");
 
-            // Reload data to reflect new GT status
+            // Reload to reflect new GT status
             await LoadDataAsync();
         }
         catch (Exception ex)
