@@ -7,6 +7,15 @@ public partial class LocalizationGridPage : ContentPage
 {
     private readonly LocalizationGridPageModel _viewModel;
     private string? _pendingCopyValue;
+    private const int MaxClipboardRetries = 3;
+    private const int ClipboardRetryDelayMs = 100;
+    
+    // Track the current cell for copy operations
+    private int _currentRowIndex = -1;
+    private int _currentColumnIndex = -1;
+    
+    // Track whether we're in edit mode
+    private bool _isInEditMode;
 
     public LocalizationGridPage(LocalizationGridPageModel viewModel)
     {
@@ -23,6 +32,13 @@ public partial class LocalizationGridPage : ContentPage
             dataGrid.CurrentCellBeginEdit += DataGrid_CurrentCellBeginEdit;
             dataGrid.CurrentCellEndEdit += DataGrid_CurrentCellEndEdit;
             dataGrid.CellRightTapped += DataGrid_CellRightTapped;
+            dataGrid.CellTapped += DataGrid_CellTapped;
+            dataGrid.SelectionChanging += DataGrid_SelectionChanging;
+            
+#if WINDOWS
+            // Handle keyboard events for copy functionality with proper error handling
+            dataGrid.Loaded += DataGrid_Loaded;
+#endif
             
             Debug.WriteLine("[LocalizationGridPage] BindingContext set");
         }
@@ -33,6 +49,157 @@ public partial class LocalizationGridPage : ContentPage
             throw;
         }
     }
+
+    private void DataGrid_SelectionChanging(object? sender, DataGridSelectionChangingEventArgs e)
+    {
+        // Track selection changes for keyboard navigation
+        // When NavigationMode is Cell, this fires when the current cell changes
+        Debug.WriteLine($"[LocalizationGridPage] Selection changing");
+    }
+
+    private void DataGrid_CellTapped(object? sender, DataGridCellTappedEventArgs e)
+    {
+        _currentRowIndex = e.RowColumnIndex.RowIndex;
+        _currentColumnIndex = e.RowColumnIndex.ColumnIndex;
+        Debug.WriteLine($"[LocalizationGridPage] Cell tapped - Row: {_currentRowIndex}, Column: {_currentColumnIndex}");
+    }
+
+#if WINDOWS
+    private void DataGrid_Loaded(object? sender, EventArgs e)
+    {
+        if (dataGrid.Handler?.PlatformView is Microsoft.UI.Xaml.FrameworkElement platformView)
+        {
+            // Use PreviewKeyDown to intercept before child controls handle it
+            platformView.PreviewKeyDown += PlatformView_PreviewKeyDown;
+        }
+    }
+
+    private async void PlatformView_PreviewKeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs e)
+    {
+        // Check for Ctrl+C
+        var ctrlPressed = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Control)
+            .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+        
+        if (ctrlPressed && e.Key == Windows.System.VirtualKey.C)
+        {
+            // If in edit mode, let the TextBox handle Ctrl+C natively for selected text copy
+            if (_isInEditMode)
+            {
+                Debug.WriteLine("[LocalizationGridPage] In edit mode, allowing native TextBox copy");
+                // Don't set e.Handled - let the TextBox process the copy
+                return;
+            }
+            
+            // Not in edit mode - handle cell copy ourselves with retry logic
+            Debug.WriteLine($"[LocalizationGridPage] Ctrl+C pressed, attempting to copy cell at Row: {_currentRowIndex}, Column: {_currentColumnIndex}");
+            e.Handled = true; // Prevent default handling that causes the crash
+            await HandleCopyAsync();
+            return;
+        }
+        
+        // Handle Enter key to start editing the current cell
+        if (e.Key == Windows.System.VirtualKey.Enter && !_isInEditMode)
+        {
+            if (_currentRowIndex >= 1 && _currentColumnIndex >= 0)
+            {
+                // Check if the column is editable
+                var column = dataGrid.Columns[_currentColumnIndex];
+                if (column.AllowEditing)
+                {
+                    Debug.WriteLine($"[LocalizationGridPage] Enter pressed - Starting edit at Row: {_currentRowIndex}, Column: {_currentColumnIndex}");
+                    e.Handled = true; // Prevent default behavior (moving to next row)
+                    
+                    // Scroll to and select the cell first to ensure grid state is synced
+                    dataGrid.ScrollToRowIndex(_currentRowIndex);
+                    dataGrid.SelectedIndex = _currentRowIndex - 1; // SelectedIndex is 0-based data index
+                    
+                    // Begin editing the current cell
+                    dataGrid.BeginEdit(_currentRowIndex, _currentColumnIndex);
+                    return;
+                }
+                else
+                {
+                    Debug.WriteLine($"[LocalizationGridPage] Enter pressed - Column {_currentColumnIndex} is not editable");
+                }
+            }
+            return;
+        }
+        
+        // Track arrow key navigation to update current cell position
+        if (!_isInEditMode)
+        {
+            switch (e.Key)
+            {
+                case Windows.System.VirtualKey.Up:
+                    if (_currentRowIndex > 1) // Don't go into header (row 0)
+                        _currentRowIndex--;
+                    Debug.WriteLine($"[LocalizationGridPage] Arrow Up - New Row: {_currentRowIndex}");
+                    break;
+                case Windows.System.VirtualKey.Down:
+                    if (_currentRowIndex < _viewModel.FilteredEntries.Count) // Stay within data bounds
+                        _currentRowIndex++;
+                    Debug.WriteLine($"[LocalizationGridPage] Arrow Down - New Row: {_currentRowIndex}");
+                    break;
+                case Windows.System.VirtualKey.Left:
+                    if (_currentColumnIndex > 0)
+                        _currentColumnIndex--;
+                    Debug.WriteLine($"[LocalizationGridPage] Arrow Left - New Column: {_currentColumnIndex}");
+                    break;
+                case Windows.System.VirtualKey.Right:
+                    if (_currentColumnIndex < dataGrid.Columns.Count - 1)
+                        _currentColumnIndex++;
+                    Debug.WriteLine($"[LocalizationGridPage] Arrow Right - New Column: {_currentColumnIndex}");
+                    break;
+            }
+        }
+    }
+
+    private async Task HandleCopyAsync()
+    {
+        try
+        {
+            // Use the tracked current cell
+            if (_currentRowIndex < 1 || _currentColumnIndex < 0) // Row 0 is header
+            {
+                Debug.WriteLine("[LocalizationGridPage] No valid cell selection for copy");
+                return;
+            }
+
+            var cellValue = GetCellValue(_currentRowIndex, _currentColumnIndex);
+            if (!string.IsNullOrEmpty(cellValue))
+            {
+                await CopyToClipboardWithRetry(cellValue);
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[LocalizationGridPage] Error in HandleCopyAsync: {ex.Message}");
+        }
+    }
+
+    private async Task CopyToClipboardWithRetry(string text)
+    {
+        for (int attempt = 0; attempt < MaxClipboardRetries; attempt++)
+        {
+            try
+            {
+                await Clipboard.Default.SetTextAsync(text);
+                Debug.WriteLine($"[LocalizationGridPage] Copied to clipboard: {text}");
+                return;
+            }
+            catch (Exception ex) when (attempt < MaxClipboardRetries - 1)
+            {
+                Debug.WriteLine($"[LocalizationGridPage] Clipboard attempt {attempt + 1} failed: {ex.Message}. Retrying...");
+                await Task.Delay(ClipboardRetryDelayMs);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[LocalizationGridPage] All clipboard attempts failed: {ex.Message}");
+                // Don't show alert for every failed copy - just log it
+            }
+        }
+    }
+#endif
 
     private async void DataGrid_CellRightTapped(object? sender, DataGridCellRightTappedEventArgs e)
     {
@@ -160,15 +327,24 @@ public partial class LocalizationGridPage : ContentPage
 
     private async Task CopyToClipboard(string text)
     {
-        try
+        for (int attempt = 0; attempt < MaxClipboardRetries; attempt++)
         {
-            await Clipboard.Default.SetTextAsync(text);
-            Debug.WriteLine($"[LocalizationGridPage] Copied to clipboard: {text}");
-        }
-        catch (Exception ex)
-        {
-            Debug.WriteLine($"[LocalizationGridPage] Error copying to clipboard: {ex.Message}");
-            await DisplayAlert("Error", "Failed to copy to clipboard", "OK");
+            try
+            {
+                await Clipboard.Default.SetTextAsync(text);
+                Debug.WriteLine($"[LocalizationGridPage] Copied to clipboard: {text}");
+                return;
+            }
+            catch (Exception ex) when (attempt < MaxClipboardRetries - 1)
+            {
+                Debug.WriteLine($"[LocalizationGridPage] Clipboard attempt {attempt + 1} failed: {ex.Message}. Retrying...");
+                await Task.Delay(ClipboardRetryDelayMs);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[LocalizationGridPage] All clipboard attempts failed: {ex.Message}");
+                await DisplayAlert("Error", "Failed to copy to clipboard. The clipboard may be in use by another application.", "OK");
+            }
         }
     }
 
@@ -176,6 +352,11 @@ public partial class LocalizationGridPage : ContentPage
     private void DataGrid_CurrentCellBeginEdit(object? sender, DataGridCurrentCellBeginEditEventArgs e)
     {
         Debug.WriteLine($"[LocalizationGridPage] Cell edit started - Row: {e.RowColumnIndex.RowIndex}, Column: {e.RowColumnIndex.ColumnIndex}");
+        _isInEditMode = true; // Set edit mode flag
+        
+        // Update tracked position to match the cell being edited
+        _currentRowIndex = e.RowColumnIndex.RowIndex;
+        _currentColumnIndex = e.RowColumnIndex.ColumnIndex;
         
         // Try to apply styling to the editor after a short delay to ensure it's created
 #if WINDOWS
@@ -229,10 +410,11 @@ public partial class LocalizationGridPage : ContentPage
     }
 #endif
 
-    private static void DataGrid_CurrentCellEndEdit(object? sender, DataGridCurrentCellEndEditEventArgs e)
+    private void DataGrid_CurrentCellEndEdit(object? sender, DataGridCurrentCellEndEditEventArgs e)
     {
         // Force the grid to commit the edit
         Debug.WriteLine($"[LocalizationGridPage] Cell edit completed - Row: {e.RowColumnIndex.RowIndex}, Column: {e.RowColumnIndex.ColumnIndex}");
+        _isInEditMode = false; // Clear edit mode flag
     }
 
     protected override void OnAppearing()

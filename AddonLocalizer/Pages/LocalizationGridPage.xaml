@@ -329,6 +329,8 @@
                                    VerticalOptions="Fill"
                                    GridLinesVisibility="Both"
                                    HeaderGridLinesVisibility="Both"
+                                   CopyOption="None"
+                                   PasteOption="None"
                                    Background="#1E1E1E">
                 
                 <syncfusion:SfDataGrid.DefaultStyle>
