@@ -127,7 +127,7 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
     private string? _localizationDirectory;
 
     public LocalizationGridPageModel(
-        ILocalizationFileWriterService fileWriter, 
+        ILocalizationFileWriterService fileWriter,
         IDialogService dialogService,
         IGoogleTranslateService translateService,
         ILuaLocalizationParserService parserService)
@@ -147,7 +147,7 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
             {
                 _parseResult = parseResult;
                 Debug.WriteLine($"[GridPage] Received ParseResult with {parseResult.GlueStrings.Count} glue strings");
-                
+
                 // Check for localization data
                 if (query.TryGetValue("LocalizationData", out var locData) && locData is LocalizationDataSet localizationDataSet)
                 {
@@ -169,7 +169,7 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
                 {
                     Debug.WriteLine($"[GridPage] WARNING: No LocalizationDirectory received!");
                 }
-                
+
                 // Defer loading to avoid blocking navigation
                 MainThread.BeginInvokeOnMainThread(async () =>
                 {
@@ -206,17 +206,17 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
             {
                 StatusMessage = "Reloading localization data...";
                 Debug.WriteLine($"[GridPage] Reloading localization data from: {_localizationDirectory}");
-                
+
                 try
                 {
                     // Re-parse the localization directory to get fresh data including GT files
                     _localizationData = await _parserService.ParseLocalizationDirectoryAsync(_localizationDirectory);
-                    
+
                     // Load GT files into the dataset
                     await _parserService.LoadGTFilesAsync(_localizationDirectory, _localizationData);
-                    
+
                     Debug.WriteLine($"[GridPage] Reloaded localization data with {_localizationData.LoadedLocales.Count()} locales");
-                    
+
                     // Check for duplicates
                     if (_localizationData.HasDuplicates)
                     {
@@ -245,7 +245,7 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
                 try
                 {
                     var result = _parseResult.GlueStrings
-                        .Select(kvp => 
+                        .Select(kvp =>
                         {
                             try
                             {
@@ -275,15 +275,15 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
 
             // Calculate orphaned entries (in localization files but not in code)
             var codeGlueStrings = _parseResult.GlueStrings.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
-            
+
             var (orphanedStrings, orphanedByFile) = await Task.Run(() =>
             {
-                if (_localizationData == null || _parseResult == null) 
+                if (_localizationData == null || _parseResult == null)
                     return (new List<string>(), new Dictionary<string, List<string>>());
-                
+
                 // Get all glue strings from localization files
                 var localizationGlueStrings = _localizationData.AllGlueStrings;
-                
+
                 // Find orphaned entries: in localization files but not in code
                 var orphaned = localizationGlueStrings
                     .Where(gs => !codeGlueStrings.Contains(gs))
@@ -304,36 +304,36 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
                 try
                 {
                     StatusMessage = $"Loaded {entries.Count} entries";
-                    
+
                     // Create new collection instead of modifying existing
                     Entries = new ObservableCollection<LocalizationEntryViewModel>(entries);
                     TotalCount = entries.Count;
-                    
+
                     // Update orphaned entry tracking
                     OrphanedGlueStrings = orphanedStrings;
                     OrphanedEntryCount = orphanedStrings.Count;
                     HasOrphanedEntries = orphanedStrings.Count > 0;
-                    
+
                     OrphanedEntriesByFile = orphanedByFile;
                     OrphanedFileCount = orphanedByFile.Count;
-                    
+
                     ApplyFilters();
-                    
+
                     HasData = FilteredEntries.Count > 0;
-                    
+
                     Debug.WriteLine($"[GridPage] HasData set to: {HasData}, FilteredCount: {FilteredCount}");
-                    
-                    var localeInfo = _localizationData != null 
-                        ? $" with {_localizationData.LoadedLocales.Count()} locales" 
+
+                    var localeInfo = _localizationData != null
+                        ? $" with {_localizationData.LoadedLocales.Count()} locales"
                         : "";
-                    var orphanedInfo = HasOrphanedEntries 
-                        ? $" | ?? {OrphanedEntryCount} orphaned" 
+                    var orphanedInfo = HasOrphanedEntries
+                        ? $" | ?? {OrphanedEntryCount} orphaned"
                         : "";
                     var duplicateInfo = HasDuplicateEntries
                         ? $" | ?? {DuplicateEntryCount} duplicates"
                         : "";
-                    StatusMessage = HasData 
-                        ? $"Showing {FilteredCount} of {TotalCount} entries{localeInfo}{orphanedInfo}{duplicateInfo}" 
+                    StatusMessage = HasData
+                        ? $"Showing {FilteredCount} of {TotalCount} entries{localeInfo}{orphanedInfo}{duplicateInfo}"
                         : "No entries to display";
 
                     // Setup property change monitoring for entries
@@ -351,7 +351,7 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
                     throw;
                 }
             });
-            
+
             // Show duplicate entries alert after UI is loaded
             if (HasDuplicateEntries)
             {
@@ -363,7 +363,7 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
             Debug.WriteLine($"[GridPage] Error in LoadDataAsync: {ex.Message}");
             Debug.WriteLine($"[GridPage] Inner exception: {ex.InnerException?.Message}");
             Debug.WriteLine($"[GridPage] Stack trace: {ex.StackTrace}");
-            
+
             await MainThread.InvokeOnMainThreadAsync(() =>
             {
                 StatusMessage = $"Error loading data: {ex.Message}";
@@ -383,7 +383,7 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
     private void Entry_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
         // Check if a locale property changed
-        if (e.PropertyName?.StartsWith("En") == true || 
+        if (e.PropertyName?.StartsWith("En") == true ||
             e.PropertyName?.StartsWith("De") == true ||
             e.PropertyName?.StartsWith("Es") == true ||
             e.PropertyName?.StartsWith("Fr") == true ||
@@ -406,18 +406,18 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
         var summary = new System.Text.StringBuilder();
         summary.AppendLine("Duplicate localization entries were found. The last value for each key will be used.");
         summary.AppendLine();
-        
+
         foreach (var (locale, duplicates) in DuplicateEntriesByLocale.OrderBy(kvp => kvp.Key))
         {
             summary.AppendLine($"?? {locale}.lua ({duplicates.Count} duplicate{(duplicates.Count > 1 ? "s" : "")}):");
-            
+
             // Show first few duplicates (limit to avoid too long message)
             var displayLimit = Math.Min(duplicates.Count, 5);
             foreach (var dup in duplicates.Take(displayLimit))
             {
                 summary.AppendLine($"  • {dup.Key} ({dup.OccurrenceCount} occurrences)");
             }
-            
+
             if (duplicates.Count > displayLimit)
             {
                 summary.AppendLine($"  ... and {duplicates.Count - displayLimit} more");
@@ -472,7 +472,7 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
                     {
                         Debug.WriteLine($"[GridPage]   - {dup.Key}: {dup.OccurrenceCount} occurrences, final value = '{dup.FinalValue}'");
                     }
-                    
+
                     // Get the current translations (already de-duplicated with last value winning)
                     var translations = _localizationData?.GetLocaleData(localeCode);
                     if (translations == null || translations.Count == 0)
@@ -482,7 +482,7 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
                     }
 
                     Debug.WriteLine($"[GridPage] Retrieved {translations.Count} translations for {localeCode}");
-                    
+
                     // Log sample translations to verify values
                     foreach (var dup in duplicates.Take(3))
                     {
@@ -550,11 +550,11 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
         var modifiedEntries = GetModifiedEntries().ToList();
         ModifiedEntryCount = modifiedEntries.Count;
         HasUnsavedChanges = ModifiedEntryCount > 0;
-        
+
         // Notify command state changes
         SaveChangesCommand.NotifyCanExecuteChanged();
         DiscardChangesCommand.NotifyCanExecuteChanged();
-        
+
         Debug.WriteLine($"[GridPage] Change tracking updated: {ModifiedEntryCount} modified entries");
     }
 
@@ -611,6 +611,11 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
         TranslateLocaleCommand.NotifyCanExecuteChanged();
     }
 
+    partial void OnHasUnsavedChangesChanged(bool value)
+    {
+        CleanupOrphanedEntriesCommand.NotifyCanExecuteChanged();
+    }
+
     partial void OnEntriesChanged(ObservableCollection<LocalizationEntryViewModel> value)
     {
         AutoTranslateCommand.NotifyCanExecuteChanged();
@@ -632,8 +637,23 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
 
         if (!string.IsNullOrWhiteSpace(SearchText))
         {
-            filtered = filtered.Where(e => 
-                e.GlueString.Contains(SearchText, StringComparison.OrdinalIgnoreCase));
+            filtered = filtered.Where(e =>
+                e.GlueString.Contains(SearchText, StringComparison.OrdinalIgnoreCase) ||
+                (!string.IsNullOrEmpty(e.EnUS) && e.EnUS.Contains(SearchText, StringComparison.OrdinalIgnoreCase)) ||
+                (!string.IsNullOrEmpty(e.EnGB) && e.EnGB.Contains(SearchText, StringComparison.OrdinalIgnoreCase)) ||
+                (!string.IsNullOrEmpty(e.EnTW) && e.EnTW.Contains(SearchText, StringComparison.OrdinalIgnoreCase)) ||
+                (!string.IsNullOrEmpty(e.EnCN) && e.EnCN.Contains(SearchText, StringComparison.OrdinalIgnoreCase)) ||
+                (!string.IsNullOrEmpty(e.DeDE) && e.DeDE.Contains(SearchText, StringComparison.OrdinalIgnoreCase)) ||
+                (!string.IsNullOrEmpty(e.EsES) && e.EsES.Contains(SearchText, StringComparison.OrdinalIgnoreCase)) ||
+                (!string.IsNullOrEmpty(e.EsMX) && e.EsMX.Contains(SearchText, StringComparison.OrdinalIgnoreCase)) ||
+                (!string.IsNullOrEmpty(e.FrFR) && e.FrFR.Contains(SearchText, StringComparison.OrdinalIgnoreCase)) ||
+                (!string.IsNullOrEmpty(e.ItIT) && e.ItIT.Contains(SearchText, StringComparison.OrdinalIgnoreCase)) ||
+                (!string.IsNullOrEmpty(e.KoKR) && e.KoKR.Contains(SearchText, StringComparison.OrdinalIgnoreCase)) ||
+                (!string.IsNullOrEmpty(e.PtBR) && e.PtBR.Contains(SearchText, StringComparison.OrdinalIgnoreCase)) ||
+                (!string.IsNullOrEmpty(e.PtPT) && e.PtPT.Contains(SearchText, StringComparison.OrdinalIgnoreCase)) ||
+                (!string.IsNullOrEmpty(e.RuRU) && e.RuRU.Contains(SearchText, StringComparison.OrdinalIgnoreCase)) ||
+                (!string.IsNullOrEmpty(e.ZhCN) && e.ZhCN.Contains(SearchText, StringComparison.OrdinalIgnoreCase)) ||
+                (!string.IsNullOrEmpty(e.ZhTW) && e.ZhTW.Contains(SearchText, StringComparison.OrdinalIgnoreCase)));
         }
 
         if (ShowOnlyConcatenated)
@@ -666,7 +686,7 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
         FilteredEntries = new ObservableCollection<LocalizationEntryViewModel>(filtered);
         FilteredCount = FilteredEntries.Count;
         HasData = FilteredCount > 0;
-        
+
         // Update status message based on filter state
         var hasActiveFilters = !string.IsNullOrWhiteSpace(SearchText) ||
                                ShowOnlyConcatenated ||
@@ -674,12 +694,12 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
                                ShowOnlyWithParameters ||
                                (!string.IsNullOrWhiteSpace(MissingTranslationLocale) && MissingTranslationLocale != "None");
 
-        var localeInfo = _localizationData != null 
-            ? $" with {_localizationData.LoadedLocales.Count()} locales" 
+        var localeInfo = _localizationData != null
+            ? $" with {_localizationData.LoadedLocales.Count()} locales"
             : "";
-        
-        var orphanedInfo = HasOrphanedEntries 
-            ? $" | ?? {OrphanedEntryCount} orphaned" 
+
+        var orphanedInfo = HasOrphanedEntries
+            ? $" | ?? {OrphanedEntryCount} orphaned"
             : "";
 
         if (hasActiveFilters)
@@ -690,7 +710,7 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
         {
             StatusMessage = $"Showing {FilteredCount} of {TotalCount} entries{localeInfo}{orphanedInfo}";
         }
-        
+
         Debug.WriteLine($"[GridPage] ApplyFilters: FilteredCount={FilteredCount}, HasData={HasData}");
     }
 
@@ -789,7 +809,7 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
                 var details = new System.Text.StringBuilder();
                 details.AppendLine($"{entriesWithManualTranslations.Count} entry/entries have enUS changes with existing translations in other locales:");
                 details.AppendLine();
-                
+
                 foreach (var entry in entriesWithManualTranslations.Take(5))
                 {
                     var locales = entry.GetNonEnUSLocalesWithTranslations();
@@ -799,7 +819,7 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
                     details.AppendLine($"  Has translations: {string.Join(", ", locales)}");
                     details.AppendLine();
                 }
-                
+
                 if (entriesWithManualTranslations.Count > 5)
                 {
                     details.AppendLine($"... and {entriesWithManualTranslations.Count - 5} more");
@@ -823,7 +843,7 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
 
             // Always mark entries for GT re-translation when enUS changes
             entriesToRetranslate.AddRange(entriesWithEnUSChanges);
-            
+
             // Mark them so we know to re-translate after save
             foreach (var entry in entriesWithEnUSChanges)
             {
@@ -843,7 +863,7 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
         // Count affected locales (recalculate after potential clearing)
         modifiedEntries = GetModifiedEntries().ToList(); // Refresh list after clearing
         Debug.WriteLine($"[GridPage] After clearing, modified entries count: {modifiedEntries.Count}");
-        
+
         var affectedLocales = new HashSet<string>();
         foreach (var entry in modifiedEntries)
         {
@@ -1115,6 +1135,14 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
     [RelayCommand(CanExecute = nameof(CanCleanupOrphanedEntries))]
     private async Task CleanupOrphanedEntries()
     {
+        if (HasUnsavedChanges)
+        {
+            await _dialogService.ShowAlertAsync("Unsaved Changes",
+                $"You have {ModifiedEntryCount} unsaved change(s).\n\n" +
+                "Please save or discard your changes before cleaning up orphaned entries.");
+            return;
+        }
+
         if (!HasOrphanedEntries || OrphanedEntriesByFile.Count == 0)
         {
             await _dialogService.ShowAlertAsync("No Orphaned Entries", 
@@ -1252,7 +1280,7 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
         }
     }
 
-    private bool CanCleanupOrphanedEntries() => HasOrphanedEntries && !IsSaving && !IsLoading && !IsTranslating;
+    private bool CanCleanupOrphanedEntries() => HasOrphanedEntries && !IsSaving && !IsLoading && !IsTranslating && !HasUnsavedChanges;
 
     [RelayCommand]
     private void TestEdit()
