@@ -29,7 +29,7 @@
                 Background="{AppThemeBinding Light={StaticResource SurfaceColorLight}, Dark={StaticResource SurfaceColorDark}}"
                 Padding="15,10">
             
-            <Grid ColumnDefinitions="*,*,*,*,Auto,Auto" ColumnSpacing="15">
+            <Grid ColumnDefinitions="*,*,*,*,Auto,Auto,Auto" ColumnSpacing="15">
                 
                 <HorizontalStackLayout Grid.Column="0" Spacing="10">
                     <CheckBox IsChecked="{Binding ShowOnlyConcatenated}"
@@ -68,6 +68,13 @@
                 </HorizontalStackLayout>
 
                 <Button Grid.Column="4" 
+                        Text="📊 Coverage"
+                        Command="{Binding ShowCoverageStatsCommand}"
+                        BackgroundColor="{AppThemeBinding Light={StaticResource Primary}, Dark={StaticResource PrimaryDark}}"
+                        TextColor="White"
+                        Padding="15,5"/>
+
+                <Button Grid.Column="5" 
                         Text="Clear Filters"
                         Command="{Binding ClearFiltersCommand}"
                         BackgroundColor="{AppThemeBinding Light={StaticResource Gray300}, Dark={StaticResource Gray400Dark}}"
@@ -75,7 +82,7 @@
                         Padding="15,5"/>
                 
                 <!-- Temporary Test Button -->
-                <Button Grid.Column="5" 
+                <Button Grid.Column="6" 
                         Text="Test Edit"
                         Command="{Binding TestEditCommand}"
                         BackgroundColor="#FF6B6B"

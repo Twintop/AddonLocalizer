@@ -1095,6 +1095,68 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
         await _dialogService.ShowAlertAsync("Export", "Export functionality coming soon!");
     }
 
+    [RelayCommand]
+    private async Task ShowCoverageStats()
+    {
+        if (Entries.Count == 0)
+        {
+            await _dialogService.ShowAlertAsync("No Data", "No localization entries loaded.");
+            return;
+        }
+
+        var totalEntries = Entries.Count;
+
+        // Calculate coverage for each locale (excluding GT translations)
+        var coverageStats = new List<(string Locale, int Count, double Percentage)>
+        {
+            ("enUS", Entries.Count(e => !string.IsNullOrWhiteSpace(e.EnUS)), 0),
+            ("enGB", Entries.Count(e => !string.IsNullOrWhiteSpace(e.EnGB)), 0),
+            ("enTW", Entries.Count(e => !string.IsNullOrWhiteSpace(e.EnTW)), 0),
+            ("enCN", Entries.Count(e => !string.IsNullOrWhiteSpace(e.EnCN)), 0),
+            ("deDE", Entries.Count(e => !string.IsNullOrWhiteSpace(e.DeDE)), 0),
+            ("esES", Entries.Count(e => !string.IsNullOrWhiteSpace(e.EsES)), 0),
+            ("esMX", Entries.Count(e => !string.IsNullOrWhiteSpace(e.EsMX)), 0),
+            ("frFR", Entries.Count(e => !string.IsNullOrWhiteSpace(e.FrFR)), 0),
+            ("itIT", Entries.Count(e => !string.IsNullOrWhiteSpace(e.ItIT)), 0),
+            ("koKR", Entries.Count(e => !string.IsNullOrWhiteSpace(e.KoKR)), 0),
+            ("ptBR", Entries.Count(e => !string.IsNullOrWhiteSpace(e.PtBR)), 0),
+            ("ptPT", Entries.Count(e => !string.IsNullOrWhiteSpace(e.PtPT)), 0),
+            ("ruRU", Entries.Count(e => !string.IsNullOrWhiteSpace(e.RuRU)), 0),
+            ("zhCN", Entries.Count(e => !string.IsNullOrWhiteSpace(e.ZhCN)), 0),
+            ("zhTW", Entries.Count(e => !string.IsNullOrWhiteSpace(e.ZhTW)), 0)
+        };
+
+        // Calculate percentages
+        coverageStats = coverageStats
+            .Select(s => (s.Locale, s.Count, Math.Round((double)s.Count / totalEntries * 100, 2)))
+            .ToList();
+
+        // Build the message
+        var message = new System.Text.StringBuilder();
+        message.AppendLine($"Total glue strings: {totalEntries}");
+        message.AppendLine();
+        message.AppendLine("Manual Translation Coverage:");
+        message.AppendLine("(Excludes Google Translate entries)");
+        message.AppendLine();
+
+        foreach (var (locale, count, percentage) in coverageStats)
+        {
+            var bar = GetProgressBar(percentage);
+            message.AppendLine($"{locale,-6} {bar} {percentage,6:F2}% ({count}/{totalEntries})");
+        }
+
+        await _dialogService.ShowAlertAsync("?? Localization Coverage", message.ToString());
+    }
+
+    private static string GetProgressBar(double percentage)
+    {
+        const int barLength = 10;
+        var filledLength = (int)Math.Round(percentage / 100 * barLength);
+        var filled = new string('#', filledLength);
+        var empty = new string('-', barLength - filledLength);
+        return $"[{filled}{empty}]";
+    }
+
     [RelayCommand(CanExecute = nameof(CanShowOrphanedEntries))]
     private async Task ShowOrphanedEntries()
     {
