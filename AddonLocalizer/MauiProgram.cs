@@ -1,9 +1,11 @@
 ﻿using AddonLocalizer.Core;
 using CommunityToolkit.Maui;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Syncfusion.Maui.Core.Hosting;
 using Syncfusion.Maui.Toolkit.Hosting;
 using Syncfusion.Licensing;
+using System.Reflection;
 
 namespace AddonLocalizer
 {
@@ -19,6 +21,18 @@ namespace AddonLocalizer
             }
 
             var builder = MauiApp.CreateBuilder();
+
+            // Load configuration from embedded appsettings.json
+            var assembly = Assembly.GetExecutingAssembly();
+            using var stream = assembly.GetManifestResourceStream("AddonLocalizer.appsettings.json");
+            if (stream != null)
+            {
+                var config = new ConfigurationBuilder()
+                    .AddJsonStream(stream)
+                    .Build();
+                builder.Configuration.AddConfiguration(config);
+            }
+
             builder
                 .UseMauiApp<App>()
                 .UseMauiCommunityToolkit()
@@ -66,6 +80,10 @@ namespace AddonLocalizer
     		builder.Logging.AddDebug();
     		builder.Services.AddLogging(configure => configure.AddDebug());
 #endif
+
+            // Register AppSettings from configuration
+            var appSettings = builder.Configuration.GetSection("AppSettings").Get<AppSettings>() ?? new AppSettings();
+            builder.Services.AddSingleton(appSettings);
 
             // Register Core services
             builder.Services.AddAddonLocalizerCore();
