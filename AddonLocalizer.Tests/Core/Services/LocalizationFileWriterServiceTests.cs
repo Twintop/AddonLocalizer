@@ -1022,10 +1022,54 @@ public class LocalizationFileWriterServiceTests
         // Structure should be preserved
         Assert.Contains("if locale == \"deDE\" then", capturedLines);
         Assert.Contains("end", capturedLines);
-        
+
         // Total assignment lines should be 2
         var assignmentLines = capturedLines.Count(l => l.TrimStart().StartsWith("L[\""));
         Assert.Equal(2, assignmentLines);
+    }
+
+    [Fact]
+    public async Task SaveLocaleFileAsync_PreservesLuaNumericEscapeSequences()
+    {
+        var localizationDir = "/addon/Localization";
+        var localeCode = "enUS";
+
+        // File with Lua numeric escape sequences (decimal byte encoding for UTF-8)
+        var existingLines = new[]
+        {
+            "local _, TRB = ...",
+            "local L = TRB.Localization",
+            "L[\"ComparisonGTE\"] = \"\\226\\137\\165 Greater Than or Equal\"",
+            "L[\"ComparisonLTE\"] = \"\\226\\137\\164 Less Than or Equal\"",
+            "L[\"HexExample\"] = \"\\x1F Test\""
+        };
+
+        // Translations with the same values (including escape sequences)
+        var translations = new Dictionary<string, string>
+        {
+            ["ComparisonGTE"] = "\\226\\137\\165 Greater Than or Equal",
+            ["ComparisonLTE"] = "\\226\\137\\164 Less Than or Equal",
+            ["HexExample"] = "\\x1F Test"
+        };
+
+        _fileSystemMock.Setup(fs => fs.DirectoryExists(localizationDir)).Returns(true);
+        _fileSystemMock.Setup(fs => fs.FileExists(It.IsAny<string>())).Returns(true);
+        _fileSystemMock.Setup(fs => fs.ReadAllLinesAsync(It.IsAny<string>())).ReturnsAsync(existingLines);
+
+        List<string>? capturedLines = null;
+        _fileSystemMock.Setup(fs => fs.WriteAllLinesAsync(It.IsAny<string>(), It.IsAny<IEnumerable<string>>()))
+            .Callback<string, IEnumerable<string>>((path, lines) => capturedLines = lines.ToList())
+            .Returns(Task.CompletedTask);
+
+        await _writer.SaveLocaleFileAsync(localizationDir, localeCode, translations, createBackup: false);
+
+        Assert.NotNull(capturedLines);
+
+        // The numeric escape sequences should NOT be double-escaped
+        // Should contain \226 not \\226
+        Assert.Contains(capturedLines, l => l.Contains("\\226\\137\\165") && !l.Contains("\\\\226"));
+        Assert.Contains(capturedLines, l => l.Contains("\\226\\137\\164") && !l.Contains("\\\\226"));
+        Assert.Contains(capturedLines, l => l.Contains("\\x1F") && !l.Contains("\\\\x1F"));
     }
 
     #endregion

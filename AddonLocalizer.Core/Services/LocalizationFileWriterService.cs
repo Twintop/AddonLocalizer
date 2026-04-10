@@ -189,7 +189,7 @@ public class LocalizationFileWriterService(IFileSystemService fileSystem) : ILoc
         for (var i = 0; i < existingLines.Count; i++)
         {
             var line = existingLines[i].TrimStart();
-            
+
             if (line.StartsWith("if locale ==") || line.StartsWith("if locale=="))
             {
                 hasLocaleBlock = true;
@@ -209,7 +209,10 @@ public class LocalizationFileWriterService(IFileSystemService fileSystem) : ILoc
         {
             var firstAssignmentIndex = -1;
             var lastAssignmentIndex = -1;
-            
+
+            // FIRST PASS: Find assignment range and identify the LAST occurrence of each key
+            var lastOccurrenceIndex = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
             for (var i = 0; i < existingLines.Count; i++)
             {
                 var trimmed = existingLines[i].TrimStart();
@@ -220,10 +223,28 @@ public class LocalizationFileWriterService(IFileSystemService fileSystem) : ILoc
                         firstAssignmentIndex = i;
                     }
                     lastAssignmentIndex = i;
+
+                    // Extract the key and track its last occurrence
+                    var keyMatch = System.Text.RegularExpressions.Regex.Match(trimmed, @"L\[""([^""]+)""\]");
+                    if (keyMatch.Success)
+                    {
+                        var key = keyMatch.Groups[1].Value;
+                        lastOccurrenceIndex[key] = i; // Overwrites previous, so we get the last one
+                    }
                 }
             }
 
             System.Diagnostics.Debug.WriteLine($"[FileWriter] Assignment range: {firstAssignmentIndex} to {lastAssignmentIndex}");
+
+            // Log duplicates found
+            var duplicateKeys = lastOccurrenceIndex
+                .Where(kvp => CountKeyOccurrences(existingLines, kvp.Key, firstAssignmentIndex, lastAssignmentIndex) > 1)
+                .Select(kvp => kvp.Key)
+                .ToList();
+            if (duplicateKeys.Count > 0)
+            {
+                System.Diagnostics.Debug.WriteLine($"[FileWriter] Found {duplicateKeys.Count} keys with duplicates: {string.Join(", ", duplicateKeys.Take(10))}{(duplicateKeys.Count > 10 ? "..." : "")}");
+            }
 
             if (firstAssignmentIndex >= 0)
             {
@@ -237,33 +258,46 @@ public class LocalizationFileWriterService(IFileSystemService fileSystem) : ILoc
                 var skippedOrphans = 0;
                 var written = 0;
 
-                // Process existing assignments
+                // SECOND PASS: Process existing assignments, keeping only the LAST occurrence of each key
                 for (var i = firstAssignmentIndex; i <= lastAssignmentIndex; i++)
                 {
                     var line = existingLines[i];
                     var trimmed = line.TrimStart();
-                    
+
                     if (trimmed.StartsWith("L[\""))
                     {
                         var keyMatch = System.Text.RegularExpressions.Regex.Match(trimmed, @"L\[""([^""]+)""\]");
                         if (keyMatch.Success)
                         {
                             var key = keyMatch.Groups[1].Value;
-                            
-                            // Only include this key if it's in the translations dictionary AND not already processed
-                            // This handles duplicates by keeping only the first occurrence
-                            if (processedKeys.Contains(key))
+
+                            // Extract the original value from the line for logging
+                            var originalValue = ExtractValueFromLine(trimmed);
+
+                            // Check if this is NOT the last occurrence of this key - if so, skip it
+                            if (lastOccurrenceIndex.TryGetValue(key, out var lastIndex) && i < lastIndex)
                             {
                                 skippedDuplicates++;
-                                System.Diagnostics.Debug.WriteLine($"[FileWriter] Skipping duplicate: {key}");
+                                System.Diagnostics.Debug.WriteLine($"[FileWriter] Skipping earlier duplicate at line {i}: {key} (keeping line {lastIndex})");
+                                continue;
                             }
-                            else if (translations.TryGetValue(key, out var newValue))
+
+                            // This is the last occurrence - process it
+                            if (translations.TryGetValue(key, out var newValue))
                             {
-                                // Mark as processed regardless of whether we write it
+                                // Mark as processed
                                 processedKeys.Add(key);
-                                
+
                                 if (!string.IsNullOrWhiteSpace(newValue))
                                 {
+                                    // Log if the value is changing (comparing file value to dictionary value)
+                                    if (originalValue != null && originalValue != newValue)
+                                    {
+                                        System.Diagnostics.Debug.WriteLine($"[FileWriter] VALUE CHANGED for '{key}':");
+                                        System.Diagnostics.Debug.WriteLine($"[FileWriter]   Original: '{originalValue}'");
+                                        System.Diagnostics.Debug.WriteLine($"[FileWriter]   New:      '{newValue}'");
+                                    }
+
                                     var lineIndent = GetIndentation(line);
                                     result.Add($"{lineIndent}L[\"{key}\"] = \"{EscapeLuaString(newValue)}\"");
                                     written++;
@@ -279,7 +313,6 @@ public class LocalizationFileWriterService(IFileSystemService fileSystem) : ILoc
                                 skippedOrphans++;
                                 System.Diagnostics.Debug.WriteLine($"[FileWriter] Skipping orphan: {key}");
                             }
-                            // If key already processed or not in translations, skip it (removes duplicates and orphaned entries)
                         }
                     }
                     else
@@ -295,7 +328,7 @@ public class LocalizationFileWriterService(IFileSystemService fileSystem) : ILoc
                 var defaultIndent = firstAssignmentIndex > 0 
                     ? GetIndentation(existingLines[firstAssignmentIndex]) 
                     : "";
-                
+
                 var newKeys = 0;
                 foreach (var (key, value) in translations.OrderBy(kvp => kvp.Key, StringComparer.OrdinalIgnoreCase))
                 {
@@ -305,7 +338,7 @@ public class LocalizationFileWriterService(IFileSystemService fileSystem) : ILoc
                         newKeys++;
                     }
                 }
-                
+
                 System.Diagnostics.Debug.WriteLine($"[FileWriter] Added {newKeys} new keys");
 
                 // Copy everything after the last assignment
@@ -327,39 +360,55 @@ public class LocalizationFileWriterService(IFileSystemService fileSystem) : ILoc
             }
         }
 
-        // Has locale block - use original logic
-        // Copy everything before the locale block (including the if line)
-        for (var i = 0; i <= localeBlockStartIndex; i++)
-        {
-            result.Add(existingLines[i]);
-        }
-
-        // Process locale block content
+        // Has locale block - use similar two-pass approach
+        // FIRST PASS: Find the last occurrence of each key within the locale block
+        var lastOccurrenceInBlock = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         for (var i = localeBlockStartIndex + 1; i < localeBlockEndIndex; i++)
         {
-            var line = existingLines[i];
-            var trimmed = line.TrimStart();
-            
+            var trimmed = existingLines[i].TrimStart();
             if (trimmed.StartsWith("L[\""))
             {
                 var keyMatch = System.Text.RegularExpressions.Regex.Match(trimmed, @"L\[""([^""]+)""\]");
                 if (keyMatch.Success)
                 {
                     var key = keyMatch.Groups[1].Value;
-                    
-                    // Skip if already processed (handles duplicates)
-                    if (processedKeys.Contains(key))
+                    lastOccurrenceInBlock[key] = i;
+                }
+            }
+        }
+
+        // Copy everything before the locale block (including the if line)
+        for (var i = 0; i <= localeBlockStartIndex; i++)
+        {
+            result.Add(existingLines[i]);
+        }
+
+        // SECOND PASS: Process locale block content, keeping only the LAST occurrence of each key
+        for (var i = localeBlockStartIndex + 1; i < localeBlockEndIndex; i++)
+        {
+            var line = existingLines[i];
+            var trimmed = line.TrimStart();
+
+            if (trimmed.StartsWith("L[\""))
+            {
+                var keyMatch = System.Text.RegularExpressions.Regex.Match(trimmed, @"L\[""([^""]+)""\]");
+                if (keyMatch.Success)
+                {
+                    var key = keyMatch.Groups[1].Value;
+
+                    // Skip if this is NOT the last occurrence
+                    if (lastOccurrenceInBlock.TryGetValue(key, out var lastIndex) && i < lastIndex)
                     {
-                        System.Diagnostics.Debug.WriteLine($"[FileWriter] Skipping duplicate in locale block: {key}");
+                        System.Diagnostics.Debug.WriteLine($"[FileWriter] Skipping earlier duplicate in locale block at line {i}: {key} (keeping line {lastIndex})");
                         continue;
                     }
-                    
-                    // Only include this key if it's in the translations dictionary
+
+                    // This is the last occurrence - process it
                     if (translations.TryGetValue(key, out var newValue))
                     {
-                        // Mark as processed regardless of whether we write it
+                        // Mark as processed
                         processedKeys.Add(key);
-                        
+
                         if (!string.IsNullOrWhiteSpace(newValue))
                         {
                             var lineIndent = GetIndentation(line);
@@ -404,6 +453,23 @@ public class LocalizationFileWriterService(IFileSystemService fileSystem) : ILoc
     }
 
     /// <summary>
+    /// Count how many times a key appears in the assignment range
+    /// </summary>
+    private static int CountKeyOccurrences(List<string> lines, string key, int startIndex, int endIndex)
+    {
+        var count = 0;
+        for (var i = startIndex; i <= endIndex; i++)
+        {
+            var trimmed = lines[i].TrimStart();
+            if (trimmed.StartsWith($"L[\"{key}\"]", StringComparison.OrdinalIgnoreCase))
+            {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    /// <summary>
     /// Get the indentation from a line
     /// </summary>
     private static string GetIndentation(string line)
@@ -422,6 +488,61 @@ public class LocalizationFileWriterService(IFileSystemService fileSystem) : ILoc
     }
 
     /// <summary>
+    /// Extract the string value from a Lua assignment line for logging purposes.
+    /// Example: L["key"] = "value" returns "value"
+    /// </summary>
+    private static string? ExtractValueFromLine(string line)
+    {
+        var assignmentIndex = line.IndexOf('=');
+        if (assignmentIndex < 0 || assignmentIndex >= line.Length - 1)
+            return null;
+
+        var rightSide = line[(assignmentIndex + 1)..].Trim();
+
+        // Handle double quotes
+        if (rightSide.StartsWith('"'))
+        {
+            var endQuote = FindClosingQuote(rightSide, '"', 1);
+            if (endQuote > 0)
+            {
+                return rightSide[1..endQuote];
+            }
+        }
+
+        // Handle single quotes
+        if (rightSide.StartsWith('\''))
+        {
+            var endQuote = FindClosingQuote(rightSide, '\'', 1);
+            if (endQuote > 0)
+            {
+                return rightSide[1..endQuote];
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Find the closing quote character, handling escape sequences.
+    /// </summary>
+    private static int FindClosingQuote(string text, char quoteChar, int startIndex)
+    {
+        for (var i = startIndex; i < text.Length; i++)
+        {
+            if (text[i] == '\\' && i + 1 < text.Length)
+            {
+                i++; // Skip escaped character
+                continue;
+            }
+            if (text[i] == quoteChar)
+            {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /// <summary>
     /// Escape special characters in strings for Lua output.
     /// This handles ACTUAL special characters (newlines, tabs, etc.) that need to be 
     /// represented as escape sequences in the Lua file.
@@ -433,11 +554,11 @@ public class LocalizationFileWriterService(IFileSystemService fileSystem) : ILoc
             return value;
 
         var sb = new System.Text.StringBuilder(value.Length);
-        
+
         for (int i = 0; i < value.Length; i++)
         {
             char c = value[i];
-            
+
             switch (c)
             {
                 case '"':
@@ -451,15 +572,36 @@ public class LocalizationFileWriterService(IFileSystemService fileSystem) : ILoc
                         sb.Append("\\\"");
                     }
                     break;
-                    
+
                 case '\\':
                     // Check if this backslash is an escape sequence prefix
                     if (i + 1 < value.Length)
                     {
                         char next = value[i + 1];
+
+                        // Check for standard escape sequences: \n, \r, \t, \\, \"
                         if (next == 'n' || next == 'r' || next == 't' || next == '\\' || next == '"')
                         {
                             // This is already an escape sequence, keep it
+                            sb.Append(c);
+                        }
+                        // Check for Lua decimal byte escape sequences: \ddd (1-3 digits)
+                        else if (char.IsDigit(next))
+                        {
+                            // This is a Lua numeric escape sequence like \226, keep it
+                            sb.Append(c);
+                        }
+                        // Check for Lua hex escape sequences: \xXX
+                        else if (next == 'x' && i + 3 < value.Length && 
+                                 IsHexDigit(value[i + 2]) && IsHexDigit(value[i + 3]))
+                        {
+                            // This is a Lua hex escape sequence like \x1F, keep it
+                            sb.Append(c);
+                        }
+                        // Check for Lua Unicode escape sequences: \u{XXXX}
+                        else if (next == 'u' && i + 2 < value.Length && value[i + 2] == '{')
+                        {
+                            // This is a Lua Unicode escape sequence like \u{1F600}, keep it
                             sb.Append(c);
                         }
                         else
@@ -474,26 +616,34 @@ public class LocalizationFileWriterService(IFileSystemService fileSystem) : ILoc
                         sb.Append("\\\\");
                     }
                     break;
-                    
+
                 case '\n':
                     sb.Append("\\n");
                     break;
-                    
+
                 case '\r':
                     sb.Append("\\r");
                     break;
-                    
+
                 case '\t':
                     sb.Append("\\t");
                     break;
-                    
+
                 default:
                     sb.Append(c);
                     break;
             }
         }
-        
+
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// Check if a character is a hexadecimal digit (0-9, a-f, A-F)
+    /// </summary>
+    private static bool IsHexDigit(char c)
+    {
+        return char.IsDigit(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
     }
 
     /// <summary>

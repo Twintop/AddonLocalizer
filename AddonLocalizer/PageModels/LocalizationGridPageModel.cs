@@ -794,7 +794,6 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
             }
         }
 
-        var entriesToRetranslate = new List<LocalizationEntryViewModel>();
         var entriesToClearManualTranslations = new List<LocalizationEntryViewModel>();
 
         if (entriesWithEnUSChanges.Count > 0)
@@ -843,15 +842,6 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
                     entriesToClearManualTranslations.AddRange(entriesWithManualTranslations);
                 }
             }
-
-            // Always mark entries for GT re-translation when enUS changes
-            entriesToRetranslate.AddRange(entriesWithEnUSChanges);
-
-            // Mark them so we know to re-translate after save
-            foreach (var entry in entriesWithEnUSChanges)
-            {
-                entry.MarkEnUSChanged();
-            }
         }
 
         // Apply translation clearing if user confirmed
@@ -880,14 +870,7 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
         }
         Debug.WriteLine($"[GridPage] Total affected locales: {affectedLocales.Count} - {string.Join(", ", affectedLocales)}");
 
-        var confirmMessage = $"Save {modifiedEntries.Count} modified translation(s) across {affectedLocales.Count} locale file(s)?";
-        
-        if (entriesToRetranslate.Count > 0)
-        {
-            confirmMessage += $"\n\n{entriesToRetranslate.Count} entry/entries will be re-translated to all GT files after saving.";
-        }
-        
-        confirmMessage += "\n\nBackups will be created automatically.";
+        var confirmMessage = $"Save {modifiedEntries.Count} modified translation(s) across {affectedLocales.Count} locale file(s)?\n\nBackups will be created automatically.";
 
         var confirm = await _dialogService.ShowConfirmationAsync(
             "Save Changes",
@@ -1006,22 +989,9 @@ public partial class LocalizationGridPageModel : ObservableObject, IQueryAttribu
 
             UpdateChangeTracking();
             
-            // Check if we need to re-translate GT files
-            if (entriesToRetranslate.Count > 0)
-            {
-                await _dialogService.ShowAlertAsync(
-                    "Save Successful",
-                    $"Successfully saved {modifiedEntries.Count} translation(s) to {localeTranslations.Count} locale file(s).\n\n" +
-                    $"Now updating {entriesToRetranslate.Count} GT translation(s)...");
-
-                await RetranslateEntriesAsync(entriesToRetranslate);
-            }
-            else
-            {
-                await _dialogService.ShowAlertAsync(
-                    "Save Successful",
-                    $"Successfully saved {modifiedEntries.Count} translation(s) to {localeTranslations.Count} locale file(s).");
-            }
+            await _dialogService.ShowAlertAsync(
+                "Save Successful",
+                $"Successfully saved {modifiedEntries.Count} translation(s) to {localeTranslations.Count} locale file(s).");
             
             StatusMessage = $"Saved {modifiedEntries.Count} translation(s) to {localeTranslations.Count} file(s)";
         }
